@@ -2,11 +2,12 @@
 sanitizer for /api/note and the RSS feed.
 
 A note in a list: path, slug, vault, folder, title, url, summary, tags, created, changed (unix seconds),
-published, card_url, and snippet (search results only: escaped HTML whose only markup is <mark>). A note in a work
-vault is always published: false and card_url: null, and its url is https://kura…/v/<vault>/n/<slug>.
+published, card_url, and snippet (search results only: escaped HTML whose only markup is <mark>). A note in any vault
+but the default is always published: false and card_url: null (Niwa and Konbini read the default vault only), and its
+url is https://kura…/v/<vault>/n/<slug>.
 
 external_links (/api/note, /api/links): the http, https, gemini and gopher links of a note's body, for Shiori's "Save
-Links". Default vault only: a work-vault note has none, so no work link can enter a save flow.
+Links". The default vault and shared vaults: a private-vault note has none, so no work link can enter a save flow.
 """
 import html
 import os
@@ -58,12 +59,13 @@ def snippet_html(text):
 
 
 def note_json(base, vault, n, snippet=None):
-    """`vault` is a sites.Site: its name and prefix, and whether it is private (no Niwa or Konbini links)."""
+    """`vault` is a sites.Site: its name and prefix, and whether it is the default (the only one with Niwa or Konbini
+    links: those rooms read one vault)."""
     folder = n.rel.rsplit("/", 1)[0] if "/" in n.rel else ""
     out = {"path": n.rel, "slug": n.slug, "vault": vault.name, "folder": folder, "title": n.title,
            "url": note_url(base, n, vault.prefix), "summary": n.description, "tags": n.tags,
            "created": search.unix(n.planted), "changed": changed(vault, n),
-           "published": bool(n.published) and not vault.private, "card_url": None if vault.private else card_url(n)}
+           "published": bool(n.published) and vault.default, "card_url": card_url(n) if vault.default else None}
     if snippet is not None:
         out["snippet"] = snippet_html(snippet)
     return out
@@ -138,7 +140,7 @@ class LinkFinder(HTMLParser):
 
 def note_links(g, n):
     """Every http, https, gemini or gopher link in the note's body (frontmatter excluded), in order, duplicates kept.
-    [] for a work vault."""
+    [] for a private vault."""
     if g.private:
         return []
     if _links_head.get(id(g)) != g.head:
@@ -172,7 +174,7 @@ def external_links(g, n, base=""):
 
 
 def folder_links(g, folder, base="", visible=None):
-    """[(note, external links)] of the default vault's notes under `folder` (subfolders included), by path; notes
+    """[(note, external links)] of a vault's notes (the default or a shared one) under `folder` (subfolders included), by path; notes
     without external links are left out. `visible`: the notes that may be served (Templates/ and the like are not)."""
     folder = folder.strip("/")
     under = sorted((n for n in (visible if visible is not None else g.notes.values()) if n.rel.startswith(folder + "/")),
@@ -248,12 +250,13 @@ def sanitize(markup, base):
 
 # -- feed ------------------------------------------------------------------------------------------------------
 
-def rss(base, title, notes_with_dates):
-    """RSS 2.0: [(note, changed unix or None)] of the default vault (the feed never carries a work vault)."""
+def rss(base, title, notes_with_dates, prefix=""):
+    """RSS 2.0: [(note, changed unix or None)] of the default vault or a shared one (`prefix`: /v/<name>); the feed
+    never carries a private vault."""
     items = "".join(
         "<item><title>%s</title><link>%s</link><guid isPermaLink=\"true\">%s</guid>%s<description>%s</description></item>"
-        % (html.escape(n.title), html.escape(note_url(base, n)), html.escape(note_url(base, n)),
+        % (html.escape(n.title), html.escape(note_url(base, n, prefix)), html.escape(note_url(base, n, prefix)),
            ("<pubDate>%s</pubDate>" % formatdate(when, usegmt=True)) if when else "", html.escape(n.description))
         for n, when in notes_with_dates)
     return ('<?xml version="1.0" encoding="utf-8"?>\n<rss version="2.0"><channel><title>%s</title><link>%s/</link>'
-            "<description>Notes in Kura</description>%s</channel></rss>\n" % (html.escape(title), html.escape(base), items))
+            "<description>Notes in Kura</description>%s</channel></rss>\n" % (html.escape(title), html.escape(base + prefix), items))

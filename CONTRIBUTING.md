@@ -24,8 +24,8 @@ python3 -m unittest discover -s tests
 ```
 
 The tests start a real Kura against fixture vaults, so they also cover the HTTP API, the reader pages and the
-sanitizer. Add a test with every change. A change to an endpoint or a query needs a test that a **work vault** (any
-vault but the default) stays out of the answer.
+sanitizer. Add a test with every change. A change to an endpoint or a query needs a test that a **private vault** (any
+vault but the default without `+shared`) stays out of the answer.
 
 ## Rules
 
@@ -33,8 +33,9 @@ vault but the default) stays out of the answer.
   re-vendor with `tools/vendor-vaultkit <tag>`.
 - The API is a contract shared with other apps. Don't change a field, a parameter or the shape of `url`
   (`<base>/n/<slug>`) without changing `docs/contracts/kura-api.md` in the Machiya repository first.
-- Kura never writes to the vault, and a note from a vault other than the default never reaches Hister, an AI engine, a
-  feed, an offline cache or an export. A client that never sends `vault` gets the default vault only.
+- Kura never writes to the vault, and a note from a private vault never reaches Hister, an AI engine, a feed, an
+  offline cache or an export. A vault is private unless `KURA_VAULTS` marks it `+shared`. A client that never sends
+  `vault` gets the default vault only.
 - Keep personal details out of the repo: hostnames, network names, names, emails, tokens. Say "the user".
 - Keep the Tokyo Night / Tokyo Day look and the existing classes, and keep pages working on phones.
 - Match the surrounding code: its naming, comment density and idiom. Commit messages start with `kura: `.

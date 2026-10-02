@@ -43,13 +43,13 @@ def never_stored(rel):
 
 
 def pinned(g, n):
-    """`offline: true` (not under Archive/, and never in a work vault): the service worker keeps the note for good."""
+    """`offline: true` (not under Archive/, and never in a private vault): the service worker keeps the note for good."""
     return n.fm.get("offline") is True and not never_stored(n.rel) and not g.private
 
 
 def crumbs(g, rel):
     parts = rel.split("/")[:-1]
-    out, acc = ['<a href="%s/">%s</a>' % (g.prefix, e(g.title) if g.private else "Kura")], ""
+    out, acc = ['<a href="%s/">%s</a>' % (g.prefix, "Kura" if g.default else e(g.title))], ""
     for p in parts:
         acc = acc + "/" + p if acc else p
         out.append('<a href="%s/f/%s">%s</a>' % (g.prefix, quote(acc), e(p)))
@@ -199,16 +199,17 @@ def note_parts(g, n):
         meta.append('created <span title="%s">%s</span>' % (e(n.planted), e(relative(n.planted))))
     if tended:
         meta.append('changed <span title="%s">%s</span>' % (e(tended), e(relative(tended))))
-    if g.private:                   # a work vault: no garden, no board (its published: is ignored)
-        meta.append('<span class="chip private">%s</span>' % e(g.title))
+    if not g.default:               # Niwa and Konbini read the default vault only: no garden, no board here
+        meta.append('<span class="chip%s">%s</span>' % (" private" if g.private else "", e(g.title)))
     elif n.published:
         meta.append(('<a class="thing is-garden" href="%s/n/%s">View in Niwa</a>' % (e(shell.NIWA_URL), quote(n.slug)))
                     if shell.NIWA_URL else '<span class="chip">Published</span>')
     else:
         meta.append('<span class="chip">Not Published</span>')
-    if api.SHIORI_LINKS and not g.private and api.external_links(g, n, api.PUBLIC_URL):
+    # shiori://save-links names a path, not a vault: Shiori reads it in the default vault
+    if api.SHIORI_LINKS and g.default and api.external_links(g, n, api.PUBLIC_URL):
         meta.append('<a class="thing" href="shiori://save-links?path=%s">Save links in Shiori</a>' % e(quote(n.rel)))
-    card = None if g.private else api.card_url(n)
+    card = api.card_url(n) if g.default else None
     if card:
         meta.append('<a class="thing is-card" href="%s">View Card in Konbini</a>' % e(card))
     tags = " ".join(tag_link(g, t) for t in n.tags if t.startswith(("topic/", "area/", "machine/")) and not t.endswith("/"))
@@ -220,8 +221,8 @@ def note_parts(g, n):
 
 
 def obsidian_attr(g):
-    """A work vault's Obsidian name, for kura.js's Edit in Obsidian (the default vault uses the device's setting)."""
-    return (' data-obsidian="%s"' % e(g.obsidian)) if g.private else ""
+    """Another vault's Obsidian name, for kura.js's Edit in Obsidian (the default vault uses the device's setting)."""
+    return "" if g.default else (' data-obsidian="%s"' % e(g.obsidian))
 
 
 def preview(g, n):
@@ -266,7 +267,7 @@ def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra=""
 
 def home(ctx, g, sel=""):
     listed = recent_notes(g, 40)
-    return columns(ctx, g, g.title if g.private else "kura", "kura", None,
+    return columns(ctx, g, "kura" if g.default else g.title, "kura", None,
                    '<h3 class="sechead">Recently Changed</h3>', lambda n: (note_row(g, x, n) for x in listed), listed, sel,
                    '<p class="more"><a href="%s/recent">Everything Changed Recently &rsaquo;</a></p>' % g.prefix)
 
@@ -310,7 +311,7 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
     or with `everywhere` every vault (the owner's "All Vaults"; the response is then never stored)."""
     action = g.prefix + "/search"
     scope_sites = shell.SITES if everywhere else [g]
-    box = shell.house.search_box(q, action, "Search " + g.title if g.private else "Search Notes", "Search every note")
+    box = shell.house.search_box(q, action, "Search Notes" if g.default else "Search " + g.title, "Search every note")
     if not q:
         box = box.replace('enterkeyhint="search"', 'enterkeyhint="search" autofocus', 1)
     if everywhere:

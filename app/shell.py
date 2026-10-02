@@ -102,11 +102,15 @@ def service_worker():
     """/sw.js: Machiya's shared worker core configured for the reader. Notes (/n/) are kept for offline reading (the
     200 most recently read; pinned ones, `offline: true`, for good, fetched ahead via /api/offline); search and
     settings are never stored; the APIs, /theme and /preview/ (the pane's fragments) are never touched. Pages
-    that must never be on a device (Archive/, and every work vault under /v/, which is network-only here) answer
-    Cache-Control: no-store, which the worker honours."""
+    that must never be on a device (Archive/, and every private vault under /v/, which is network-only here) answer
+    Cache-Control: no-store, which the worker honours. Fail closed: /v/ is network-only except the shared vaults
+    named here, so a vault the worker doesn't know of (or one made private since) is never stored."""
+    shared = "|".join(x.name for x in SITES if x.shared)       # names are [a-z0-9-]+: nothing to escape
+    under = "(?:/v/(?:%s))?" % shared if shared else ""
+    v = "^/v/(?!(?:%s)/)" % shared if shared else "^/v/"
     return house.service_worker(VERSION, shell_urls(), offline="/offline", bypass=["^/api/", "^/theme$", "^/preview/"],
-                                network=["^/search$", "^/settings$", "^/v/"], notes={"match": "^/n/", "limit": 200},
-                                pages=30, assetMatch=["^/a/"], assets=100, pins="/api/offline")
+                                network=["^%s/search$" % under, "^/settings$", v], notes={"match": "^%s/n/" % under, "limit": 200},
+                                pages=30, assetMatch=["^%s/a/" % under], assets=100, pins="/api/offline")
 
 
 # -- the page ------------------------------------------------------------------
@@ -145,7 +149,7 @@ def header(site, current, subtitle="", search=True):
     site = site or default_site()
     tools = vault_switch(site) if site else ""
     if search:
-        what = "Search Notes" if not site or not site.private else "Search " + site.title
+        what = "Search Notes" if not site or site.default else "Search " + site.title
         tools = house.search_box("", (site.prefix if site else "") + "/search", what, "Search every note") + tools
     return house.header(ROOM, nav(site), current, rooms(), subtitle, tools)
 

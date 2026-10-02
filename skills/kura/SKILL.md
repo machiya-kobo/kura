@@ -19,7 +19,7 @@ With the Machiya MCP connected, `notes_search`, `notes_read`, `notes_recent`, `n
 ## Reading
 
 - `/api/note?path=Projects/Garden Plan.md`: one note: the fields above plus `markdown` (raw, frontmatter included), sanitized `html`, and `backlinks` and `outlinks` (`{path, title, url}`). Follow links by reading the linked `path`.
-- `external_links` on `/api/note`, and `/api/links?folder=<f>` (paged like the lists; `folder` required): the note body's http, https, gemini and gopher links (markdown links, raw HTML, autolinks and bare URLs), `[{url, text}]`, deduplicated in order, without Kura's and the other rooms' hosts and never from code. Default vault only: a work note has none and `/api/links` refuses another vault with a 400.
+- `external_links` on `/api/note`, and `/api/links?folder=<f>` (paged like the lists; `folder` required): the note body's http, https, gemini and gopher links (markdown links, raw HTML, autolinks and bare URLs), `[{url, text}]`, deduplicated in order, without Kura's and the other rooms' hosts and never from code. Never for a private vault: its notes have none and `/api/links` refuses it with a 400.
 - `/api/notes?paths=a.md,b.md`: up to 100 notes in one call; `missing` lists the ones Kura doesn't have. Every value is split on commas, so a path containing a comma can't be looked up here: use `/api/note?path=` for it.
 - `/api/recent?limit=&offset=`: newest change first.
 - `/api/tags` and `/api/folders`: every tag or folder with its note count.
@@ -30,11 +30,11 @@ A note is its path in the vault (`Projects/Garden Plan.md`). Its `url` is `$KURA
 
 ## Rules for AI contexts
 
-Kura can serve several vaults. The first is the default (personal); the others are work vaults, private to the owner and their devices.
+Kura can serve several vaults. The first is the default (personal); the others live under `/v/<vault>/…`. Most are private (work vaults, for the owner and their devices only); the owner can mark a vault shared, and `/api/vaults` says which (`private: false`).
 
 - Never send a `vault` parameter, and don't put `vault:` in a query. Without it, Kura answers with the default vault only, and a `vault:` term can't widen that.
-- Drop any note whose `vault` isn't the default, or whose `url` path starts with `/v/` (after normalising slashes and percent-encoding), even though Kura shouldn't send one.
-- Never put a work note in a prompt, a summary, Hister, a feed or a cache.
+- Drop any note whose `vault` isn't the default, or whose `url` path starts with `/v/` (after normalising slashes and percent-encoding), even though Kura shouldn't send one, unless `/api/vaults` says that vault is `private: false`. When you can't tell, drop it.
+- Never put a private vault's note in a prompt, a summary, Hister, a feed or a cache.
 - Don't look a note up by a `/v/…` URL.
 
 ## Access

@@ -113,10 +113,10 @@ def changed_times(run, subdirs):
 
 
 def footer_status(site=None):
-    """The footer's status line (shell.footer) and About's Vault row: "synced abc1234 3 min ago · 42 notes". A work
+    """The footer's status line (shell.footer) and About's Vault row: "synced abc1234 3 min ago · 42 notes". Another
     vault's line starts with its title."""
     site = site or state.default
-    label = (site.title + " · ") if site.private else ""
+    label = "" if site.default else (site.title + " · ")
     if not site.ready:
         return {"text": label + "starting: cloning the vault", "state": "down"}
     age = int(time.time()) - (site.synced_at or 0)
@@ -154,7 +154,7 @@ class State:
         self.index = search.Index()
         self.loop_error = None
         # The push needs a stable public base for its URLs (Hister documents key on them), so it needs PUBLIC_URL.
-        # It only ever sends the default vault: work vaults never reach Hister (push.py refuses a private one).
+        # It sends the default vault and the shared ones: private vaults never reach Hister (push.py refuses them).
         self.push = push.Push(HISTER_URL, DB, self.default.subdir, PUBLIC_URL) if HISTER_URL and PUBLIC_URL else None
 
     @property
@@ -199,12 +199,13 @@ class State:
                 print("kura: indexed %d notes of %s at %s in %.1fs" % (
                     self.index.counts[site.name], site.name, head[:10], time.monotonic() - started), flush=True)
                 site.ready = True
-                if site.default and self.push:
+                if not site.private and self.push:
                     self.push.pending = True
             site.head, site.synced_at, site.error = head, int(time.time()), None
         self.loop_error = None
         if self.push and self.push.pending and self.default.ready:
-            self.push.run_once(self.default, pages.visible(self.default), self.default.head)
+            self.push.run([(x, pages.visible(x), x.head) for x in self.sites if not x.private and x.ready],
+                          [x.name for x in self.sites if x.shared])
 
     def loop(self):
         while True:
@@ -298,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         if owner:
             out.update(repo=safe_url(REPO_URL) or REPO_DIR, subdir=d.subdir)
         out["error"] = err(state.error, "sync failed")
-        # a work vault shows only its error here (/api/vaults, owner-gated, has the head and the count)
+        # a private vault shows only its error here (/api/vaults, owner-gated, has the head and the count)
         out["vaults"] = {x.name: {"error": err(x.error, "sync failed")} if x.private else
                          {"head": x.head, "synced_at": x.synced_at, "notes": state.index.counts.get(x.name, 0),
                           "error": err(x.error, "sync failed")} for x in state.sites}
@@ -422,6 +423,8 @@ class Handler(BaseHTTPRequestHandler):
                     err = str(e)
             self.send(200, pages.search(ctx, g, q, hits, total, err, sel, everywhere),
                       headers=[NO_STORE] if everywhere or g.private else keep)
+        elif path == "/feed.xml" and not g.private:      # a shared vault's own feed
+            self.feed(query, g)
         elif path.startswith("/a/"):
             full = g.asset_path(path[3:])
             ctype = IMAGE_TYPES.get(os.path.splitext(path)[1].lower())
@@ -481,9 +484,9 @@ class Handler(BaseHTTPRequestHandler):
                 {"name": x.name, "title": x.title, "default": x.default, "private": x.private, "obsidian": x.obsidian,
                  "notes": counts.get(x.name, 0), "head": x.head, "synced_at": x.synced_at, "error": x.error}
                 for x in state.sites]})
-        if path == "/api/offline":      # the service worker's pins: default-vault notes with offline: true, fetched ahead
-            g = state.default
-            return self.send_json(200, {"urls": ["/n/" + quote(n.slug) for n in pages.visible(g) if pages.pinned(g, n)]})
+        if path == "/api/offline":      # the service worker's pins: notes with offline: true, fetched ahead (never private)
+            return self.send_json(200, {"urls": [g.prefix + "/n/" + quote(n.slug) for g in state.sites
+                                                 if not g.private and g.ready for n in pages.visible(g) if pages.pinned(g, n)]})
         try:
             asked = self.vault_sites(query, one=path in ("/api/note", "/api/tags", "/api/folders", "/api/links"))
         except ValueError as e:
@@ -526,13 +529,13 @@ class Handler(BaseHTTPRequestHandler):
                           key=lambda x: x.title.lower())
             fwd = sorted((g.notes[r] for r in n.links if r in g.notes and not r.startswith(pages.HIDDEN)),
                          key=lambda x: x.title.lower())
-            out["external_links"] = api.external_links(g, n, base)       # [] for a work vault
+            out["external_links"] = api.external_links(g, n, base)       # [] for a private vault
             out["backlinks"] = [api.link_json(base, x, g.prefix) for x in back]
             out["outlinks"] = [api.link_json(base, x, g.prefix) for x in fwd]
             return self.send_json(200, out)
         if path == "/api/links":                # a folder's external links in one call (Shiori's Save Links)
             if g.private:
-                return self.send_json(400, {"error": "links are only served for the default vault"})
+                return self.send_json(400, {"error": "links are not served for a private vault"})
             folder = (query.get("folder") or [""])[0].strip().strip("/")
             if not folder:
                 return self.send_json(400, {"error": "folder is required"})
@@ -562,9 +565,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"folders": [{"folder": f, "count": c} for f, c in sorted(counts.items())]})
         self.send_json(404, {"error": "no such endpoint"})
 
-    def feed(self, query):
-        """RSS of the default vault only: no vault parameter, so a feed or an OPML export can't carry a work note."""
-        g, base = state.default, self.base()
+    def feed(self, query, g=None):
+        """RSS of one vault: /feed.xml the default, /v/<name>/feed.xml a shared one. No vault parameter, and never a
+        private vault, so a feed or an OPML export can't carry a work note."""
+        g, base = g or state.default, self.base()
+        if g.private:
+            raise ValueError("no feed for a private vault")
         q, tag, folder = ((query.get(k) or [""])[0] for k in ("q", "tag", "folder"))
         if q or tag or folder:
             try:
@@ -576,8 +582,10 @@ class Handler(BaseHTTPRequestHandler):
             _, found = state.index.recent(50, 0, [g.name])
             rels = [r for _, r in found]
         notes = [(g.notes[r], api.changed(g, g.notes[r])) for r in rels if r in g.notes]
-        title = "Kura" + ((": " + " ".join(x for x in (q, tag and "#" + tag, folder) if x)) if (q or tag or folder) else "")
-        self.send(200, api.rss(base, title, notes), "application/rss+xml", headers=[("Cache-Control", "max-age=300")])
+        title = ("Kura" if g.default else "Kura · " + g.title) + (
+            (": " + " ".join(x for x in (q, tag and "#" + tag, folder) if x)) if (q or tag or folder) else "")
+        self.send(200, api.rss(base, title, notes, g.prefix), "application/rss+xml",
+                  headers=[("Cache-Control", "max-age=300")])
 
 
 def main():

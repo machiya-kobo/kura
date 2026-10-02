@@ -5,11 +5,11 @@
 **Machiya** is a set of small self-hosted apps around one Obsidian vault; each app is a **room** (Kura is the room that reads and searches every note), and the rooms share one look and one set of settings. The **owner** is the person whose vault it is, the only one Kura serves. The Machiya repository has the architecture, the principles and the API contract.
 
 - A reader with three columns on wide screens (folders | notes | preview), two on tablets, and one plus a tab bar on phones. It's the room `kura` (蔵, orange) in Machiya's shared shell: Tokyo Night / Day, the Rooms switcher, a footer status line and `/settings` (Appearance; Reading: Preview Pane, Obsidian Vault, Offline Copies; Apps; About).
-- **Other vaults.** With `KURA_VAULTS`, work vaults (say `work` and `client`) are readable and searchable next to the default one: the default lives at `/n/…` as always, every other vault at `/v/<name>/…` with a yellow vault chip and a switch in the header. They're private: no Niwa or Konbini links, never pushed to Hister, never stored on a device (`Cache-Control: no-store`, network-only in the service worker), and invisible to the API and the feed unless a client asks with `vault=`. See "Vaults" in the API contract.
+- **Other vaults.** With `KURA_VAULTS`, more vaults (say `work`, `client` or `team`) are readable and searchable next to the default one: the default lives at `/n/…` as always, every other vault at `/v/<name>/…` with a vault chip and a switch in the header. A vault is **private** unless it's marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device (`Cache-Control: no-store`, network-only in the service worker), no external links and no feed. A **shared** vault is treated like the default one at its `/v/<name>/` addresses: kept for offline reading (`offline: true` counts), external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those rooms read the default vault only), and both stay invisible to the API unless a client asks with `vault=`. See "Vaults" in the API contract.
 - Installable as a PWA with offline reading: the shared service worker keeps the 200 notes read last, and every note with `offline: true` for good (listed at `/api/offline`, fetched ahead). Pages under `Archive/` answer `Cache-Control: no-store` and are never kept on a device.
 - Every `[[wikilink]]` works, with backlinks from the whole vault, folder and tag browsing (nested tags included), and recently changed.
 - Full-text search (SQLite FTS5): phrases, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:`, ranked by bm25 with titles first.
-- A JSON API for Shiori and anything else: `/api/search`, `/api/notes`, `/api/note` (with `external_links`, the note body's http, https, gemini and gopher links), `/api/links` (a folder's external links in one call, default vault only), `/api/recent`, `/api/tags`, `/api/folders`, `/api/status`, plus `/feed.xml`. The contract is `docs/contracts/kura-api.md` in the Machiya repository.
+- A JSON API for Shiori and anything else: `/api/search`, `/api/notes`, `/api/note` (with `external_links`, the note body's http, https, gemini and gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/status`, plus `/feed.xml`. The contract is `docs/contracts/kura-api.md` in the Machiya repository.
 
 ## Quickstart
 
@@ -262,7 +262,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 
 | Env | Default | |
 |---|---|---|
-| `KURA_VAULTS` | — | `name[:Title]=source#subdir,…`: the vaults; the first is the default (`/n/…`), the rest live at `/v/<name>/…`. `source` is a directory (a mounted checkout) or a git URL (cloned once per distinct URL under `KURA_REPO_DIR`). Example: `personal=/vault#personal,work:Work=/vault#work,client:Client=/vault#client`. Names are `[a-z0-9-]+`, not `v`. Unset: the `KURA_REPO_*` below describe one vault, `notes` |
+| `KURA_VAULTS` | — | `name[+shared][:Title]=source#subdir,…`: the vaults; the first is the default (`/n/…`), the rest live at `/v/<name>/…` and are private unless marked `+shared` (not allowed on the default, which is never private; any other `+flag` refuses to start). `source` is a directory (a mounted checkout) or a git URL (cloned once per distinct URL under `KURA_REPO_DIR`). Example: `personal=/vault#personal,team+shared:Team=/vault#team,work:Work=/vault#work`. Names are `[a-z0-9-]+`, not `v`. Unset: the `KURA_REPO_*` below describe one vault, `notes` |
 | `KURA_VAULT_<NAME>_OBSIDIAN` | the folder name | that vault's name in Obsidian (`/api/vaults` reports it as `obsidian`) |
 | `KURA_REPO_URL` | — | vault repo. Unset: use `KURA_REPO_DIR` as it is (a mounted checkout) |
 | `KURA_REPO_DIR` | `/data/repo` | the clone |
@@ -279,7 +279,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 | `MACHIYA_ROOMS` | — | the Rooms switcher: `shiori=https://…,konbini=…,niwa=…,kura=…,hister=…,searxng=…` (the stack sets it); also Search's "Search everything in Shiori" |
 | `MACHIYA_COOKIE_DOMAIN` | — | share Theme, Text Size and Apps across the rooms on this domain (e.g. `example.ts.net`) |
 | `KURA_SHIORI_LINKS` | — | `1`: a note with external links shows "Save links in Shiori" (`shiori://save-links?path=<vault path>`), default vault only. Off, nothing changes |
-| `KURA_HISTER_URL` | — | push every note into Hister (label `vault`); needs `KURA_PUBLIC_URL` |
+| `KURA_HISTER_URL` | — | push every note of the default and the shared vaults into Hister (label `vault`); a vault made private again is withdrawn; needs `KURA_PUBLIC_URL` |
 | `KURA_DB` | `/data/kura.sqlite3` | what the push sent (URL + hash per note) |
 | `KURA_PORT` | `8080` | |
 | `TZ` | the system zone (UTC in the image) | the day "changed yesterday" is counted in |
@@ -315,7 +315,7 @@ KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB=/tmp/kur
 
 - `app/kura.py` — the server: settings, the sync loop, routes, the owner gate and the API
 - `app/pages.py` — the reader pages; every page takes the vault (`g`, a `sites.Site`) and builds its links with `g.prefix`
-- `app/sites.py` — the vaults: `KURA_VAULTS` parsing, `Site` (a vaultkit `Vault` with a name, title, prefix and privacy) and the shared checkouts
+- `app/sites.py` — the vaults: `KURA_VAULTS` parsing, `Site` (a vaultkit `Vault` with a name, title, prefix, and whether it's shared or private) and the shared checkouts
 - `app/search.py` — the FTS5 index (one table, a `vault` column) and the query syntax
 - `app/api.py` — JSON shapes, card links, the HTML sanitizer for `/api/note`, and RSS
 - `app/push.py` — the vault push into Hister

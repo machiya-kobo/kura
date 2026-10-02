@@ -6,6 +6,12 @@ show the running version.
 
 ## 0.5.0
 
+- A vault can be marked shared in `KURA_VAULTS`: `name+shared[:Title]=source#subdir`. A shared vault is treated like the
+  default one at its `/v/<name>/` addresses: kept for offline reading (`offline: true` counts, `/api/offline` lists it),
+  `external_links` and `/api/links`, its own `/v/<name>/feed.xml`, pushed to Hister, shown in full in `/api/status`,
+  and `private: false` in `/api/vaults`. A vault without the flag stays private, as before. `+shared` on the default
+  vault, or an unknown flag, refuses to start. No other vault gets Niwa, Konbini or "Save links in Shiori" links.
+- The Hister push withdraws the documents of a vault that is no longer shared.
 - `KURA_PUBLIC_URL` must be an origin (`https://kura.example`, maybe with a port) and Kura refuses to start otherwise.
   Under a path (`https://host/kura`), a work vault's note had an address clients couldn't tell from any other page
   (they look for `/v/` at the start of the path), so it could reach Hister or AI; Kura's own pages already needed the

@@ -40,6 +40,13 @@ WORK = {                        # a work vault in the same repo (personal is the
                                     "[[Paper lanterns]]. [Work link](https://work.example.com/secret) https://work.example.com/bare\n\n![[wpic.png]]\n",
     "Lantern.md": "---\ntags: 2025\n---\nThe work lantern: a different note with the same name.\n",   # a scalar tags:
 }
+TEAM = {                        # a shared vault in the same repo (SharedVaultTest adds it to its own Kura state)
+    "Guides/Onboarding.md": "---\ntitle: Onboarding\ntags: [topic/team]\npublish: true\nproject: onboard\n"
+                            "offline: true\ntype: project\n---\nOkapi onboarding. See [[Lantern]]. "
+                            "[Team wiki](https://team.example.com/wiki) https://team.example.com/bare\n\n![[tpic.png]]\n",
+    "Lantern.md": "---\ntags: [topic/team]\n---\nThe team lantern.\n",
+    "Archive/Old.md": "---\ntags: [topic/team]\noffline: true\n---\nAn okapi from long ago.\n",
+}
 
 
 def sh(*args, cwd=None):
@@ -47,13 +54,13 @@ def sh(*args, cwd=None):
 
 
 def make_vault():
-    for sub, notes in (("personal", NOTES), ("work", WORK)):
+    for sub, notes in (("personal", NOTES), ("work", WORK), ("team", TEAM)):
         for rel, text in notes.items():
             path = os.path.join(REPO, sub, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w") as f:
                 f.write(text)
-    for rel in ("personal/pic.png", "work/wpic.png"):
+    for rel in ("personal/pic.png", "work/wpic.png", "team/tpic.png"):
         with open(os.path.join(REPO, rel), "wb") as f:
             f.write(b"\x89PNG")
     sh("git", "init", "-q", "-b", "main", cwd=REPO)
@@ -868,8 +875,13 @@ class MirrorModeTest(unittest.TestCase):
 
     def test_config_is_strict(self):
         self.assertEqual(sites.parse("a=/x#p, b:Big B=https://h/r.git#"),
-                         [("a", "A", "/x", "p"), ("b", "Big B", "https://h/r.git", "")])
-        for bad in ("a", "A=/x", "v=/x", "a=/x, a=/y", "a b=/x", "=/x"):
+                         [("a", "A", "/x", "p", False), ("b", "Big B", "https://h/r.git", "", False)])
+        self.assertEqual(sites.parse("a=/x#p, b+shared:C++ & B=/x#b, c + shared =/x#c"),
+                         [("a", "A", "/x", "p", False), ("b", "C++ & B", "/x", "b", True), ("c", "C", "/x", "c", True)])
+        for bad in ("a", "A=/x", "v=/x", "a=/x, a=/y", "a b=/x", "=/x",
+                    "a+shared=/x",                              # the default vault is never private: no flag
+                    "a=/x, b+public=/x", "a=/x, b+=/x", "a=/x, b+Shared=/x", "a=/x, b:Work+shared=/x#b",
+                    "a=/x, +shared=/x", "a=/x, v+shared=/x"):
             with self.assertRaises(SystemExit, msg=bad):
                 sites.parse(bad)
         made, _ = sites.build({"KURA_VAULTS": "p=/x#personal, client=/x#client", "KURA_VAULT_CLIENT_OBSIDIAN": "Work Client"},
@@ -880,6 +892,7 @@ class MirrorModeTest(unittest.TestCase):
 
 class FakeHister(kura.BaseHTTPRequestHandler):
     calls = []
+    refuse = False                  # answer 500 to every delete
 
     def log_message(self, *args):
         pass
@@ -887,7 +900,8 @@ class FakeHister(kura.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeHister.calls.append((self.path, self.headers.get("Origin"), body))
-        self.send_response(200 if self.headers.get("Origin") == "hister://" else 403)
+        refused = FakeHister.refuse and self.path == "/api/delete"
+        self.send_response(500 if refused else 200 if self.headers.get("Origin") == "hister://" else 403)
         self.send_header("Content-Length", "2")
         self.end_headers()
         self.wfile.write(b"{}")
@@ -959,6 +973,158 @@ class PushTest(unittest.TestCase):
         self.assertFalse(r["complete"])
         self.assertTrue(p.pending)
         self.assertEqual(p.rows(), {})
+
+
+class SharedVaultTest(unittest.TestCase):
+    """A vault marked +shared in KURA_VAULTS is treated like the default vault at its /v/<name>/ addresses: stored on
+    devices, external links, its own feed, pushed to Hister. It still gets no Niwa or Konbini links (those rooms read
+    the default vault only), and a client that never sends `vault` still sees the default vault alone. An unflagged
+    vault next to it stays private."""
+
+    @classmethod
+    def setUpClass(cls):
+        import push
+        cls.hister = kura.ThreadingHTTPServer(("127.0.0.1", 0), FakeHister)
+        threading.Thread(target=cls.hister.serve_forever, daemon=True).start()
+        FakeHister.calls = []
+        env = {"KURA_VAULTS": "personal=%s#personal, work:Work Notes=%s#work, team+shared:Team=%s#team" % (REPO, REPO, REPO)}
+        st = kura.State.__new__(kura.State)
+        st.sites, st.sources = sites.build(env, "", REPO, "personal", "", "", "token")
+        st.default, st.by_name = st.sites[0], {x.name: x for x in st.sites}
+        st.index, st.loop_error = search.Index(), None
+        cls.db = os.path.join(TMP, "push-shared.sqlite3")
+        st.push = push.Push("http://127.0.0.1:%d" % cls.hister.server_address[1], cls.db, "personal", "https://kura.test")
+        cls.saved = kura.state, kura.shell.SITES
+        kura.state, kura.shell.SITES = st, st.sites
+        st.sync()
+        cls.st = st
+
+    @classmethod
+    def tearDownClass(cls):
+        kura.state, kura.shell.SITES = cls.saved
+        cls.hister.shutdown()
+
+    def test_flags(self):
+        team, work = self.st.by_name["team"], self.st.by_name["work"]
+        self.assertEqual((team.shared, team.private, team.prefix), (True, False, "/v/team"))
+        self.assertEqual((work.shared, work.private), (False, True))
+        self.assertEqual((self.st.default.shared, self.st.default.private), (False, False))
+
+    def test_vaults_and_status(self):
+        _, d = getj("/api/vaults")
+        self.assertEqual([(v["name"], v["default"], v["private"]) for v in d["vaults"]],
+                         [("personal", True, False), ("work", False, True), ("team", False, False)])
+        st = json.loads(get("/api/status", user=None)[1])
+        self.assertEqual(sorted(st["vaults"]["team"]), ["error", "head", "notes", "synced_at"])   # shown like the default
+        self.assertEqual(st["vaults"]["team"]["notes"], 3)
+        self.assertEqual(st["vaults"]["work"], {"error": None})            # still only its error
+
+    def test_reader_keeps_a_shared_vault(self):
+        st, h, body = fetch("/v/team/n/Guides/Onboarding")
+        self.assertEqual(st, 200)
+        self.assertNotEqual(h["Cache-Control"], "no-store")
+        self.assertIn('<span class="chip">Team</span>', body)              # named, not yellow
+        self.assertNotIn('class="chip private"', body.split("<main", 1)[-1])
+        self.assertNotIn("View in Niwa", body)                             # publish: true: Niwa reads the default vault only
+        self.assertNotIn("View Card in Konbini", body)
+        self.assertIn("machiya-offline", body)                             # offline: true counts here
+        self.assertIn('href="/v/team/n/Lantern"', body)
+        api.SHIORI_LINKS = True
+        try:
+            self.assertNotIn("shiori://save-links", fetch("/v/team/n/Guides/Onboarding")[2])   # the scheme has no vault
+        finally:
+            api.SHIORI_LINKS = False
+        for path in ("/v/team/", "/v/team/recent", "/v/team/f/Guides", "/v/team/t/topic/team", "/v/team/a/tpic.png"):
+            self.assertNotEqual(fetch(path)[1]["Cache-Control"], "no-store", path)
+        for path in ("/v/team/n/Archive/Old", "/v/team/f/Archive"):
+            self.assertEqual(fetch(path)[1]["Cache-Control"], "no-store", path)   # Archive/ is never kept, in any vault
+        self.assertEqual(fetch("/v/work/n/Runbooks/Zebrafish%20deploy")[1]["Cache-Control"], "no-store")
+
+    def test_api_and_links(self):
+        _, d = getj("/api/note?path=Guides/Onboarding.md&vault=team")
+        self.assertEqual((d["vault"], d["url"]), ("team", "https://kura.test/v/team/n/Guides/Onboarding"))
+        self.assertEqual((d["published"], d["card_url"]), (False, None))
+        self.assertEqual([x["url"] for x in d["external_links"]],
+                         ["https://team.example.com/wiki", "https://team.example.com/bare"])
+        st, d = getj("/api/links?vault=team&folder=Guides")
+        self.assertEqual((st, d["total"], d["notes"][0]["url"]), (200, 1, "https://kura.test/v/team/n/Guides/Onboarding"))
+        self.assertEqual(get("/api/links?vault=work&folder=Runbooks")[0], 400)
+        _, d = getj("/api/note?path=Runbooks/Zebrafish%20deploy.md&vault=work")
+        self.assertEqual(d["external_links"], [])
+
+    def test_no_vault_parameter_still_means_the_default_vault(self):
+        for path in ("/api/search?q=okapi", "/api/search?q=vault:team+okapi", "/api/recent?limit=50", "/api/tags"):
+            body = get(path)[1]
+            self.assertNotIn("okapi", body.lower(), path)
+            self.assertNotIn("/v/", body, path)
+        self.assertEqual(getj("/api/search?q=okapi&vault=team")[1]["total"], 2)
+
+    def test_feeds(self):
+        st, h, body = fetch("/v/team/feed.xml")
+        self.assertEqual((st, h["Content-Type"].split(";")[0]), (200, "application/rss+xml"))
+        self.assertIn("<title>Kura · Team</title>", body)
+        self.assertIn("<link>https://kura.test/v/team/n/Guides/Onboarding</link>", body)
+        self.assertNotIn("Zebrafish", body)
+        self.assertNotIn("okapi", get("/feed.xml")[1].lower())             # the default feed stays the default vault's
+        self.assertIn("Okapi", get("/v/team/feed.xml?q=okapi")[1])
+        st, h, _ = fetch("/v/work/feed.xml")
+        self.assertEqual((st, h["Cache-Control"]), (404, "no-store"))
+
+    def test_offline_pins(self):
+        urls = getj("/api/offline")[1]["urls"]
+        self.assertIn("/v/team/n/Guides/Onboarding", urls)
+        self.assertIn("/n/Notes/Tea%20brewing", urls)
+        self.assertNotIn("/v/team/n/Archive/Old", urls)
+        self.assertFalse([u for u in urls if u.startswith("/v/work/")])
+
+    def test_service_worker_stores_only_shared_prefixes(self):
+        import re
+        text = fetch("/sw.js")[2]
+        cfg = json.loads(text[text.index("machiyaSW(") + 10:].rsplit(")", 1)[0])
+        net = [re.compile(x) for x in cfg["network"]]
+        note, asset = re.compile(cfg["notes"]["match"]), [re.compile(x) for x in cfg["assetMatch"]]
+        for p in ("/v/work/n/Lantern", "/v/work/", "/v/work/a/wpic.png", "/v/teams/n/x", "/v/te/n/x", "/v/nope/",
+                  "/v/team-b/n/x", "/search", "/v/team/search"):
+            self.assertTrue(any(r.search(p) for r in net), p)              # network-only: never stored
+        for p in ("/v/team/n/Lantern", "/v/team/", "/v/team/f/Guides", "/n/Lantern"):
+            self.assertFalse(any(r.search(p) for r in net), p)
+        self.assertTrue(note.search("/v/team/n/Lantern") and note.search("/n/Lantern"))
+        self.assertFalse(note.search("/v/work/n/Lantern"))
+        self.assertTrue(any(r.search("/v/team/a/tpic.png") for r in asset))
+        self.assertFalse(any(r.search("/v/work/a/wpic.png") for r in asset))
+
+    def test_push_sends_shared_and_withdraws_when_private(self):
+        adds = {b["url"]: b for path, _, b in FakeHister.calls if path == "/api/add"}
+        self.assertIn("https://kura.test/n/Projects/Lantern", adds)
+        doc = adds["https://kura.test/v/team/n/Guides/Onboarding"]
+        self.assertEqual((doc["label"], doc["metadata"]["source"], doc["metadata"]["vault_path"]),
+                         ("vault", "vault", "team/Guides/Onboarding.md"))
+        self.assertTrue(doc["metadata"]["ignore_skip_rules"])
+        self.assertIn('href="https://kura.test/v/team/n/Lantern"', doc["html"])
+        self.assertFalse([u for u in adds if "/v/work/" in u])
+        self.assertNotIn("Zebrafish", json.dumps(FakeHister.calls))
+        self.assertEqual(len(adds), 4 + 3)
+        r = self.st.push.last
+        self.assertEqual((r["pushed"], r["complete"], self.st.push.pending), (7, True, False))
+        FakeHister.calls = []
+        self.st.push.run([(self.st.default, kura.pages.visible(self.st.default), self.st.default.head)], [])
+        gone = sorted(b["query"] for path, _, b in FakeHister.calls if path == "/api/delete")
+        self.assertEqual(len(gone), 3)                                     # team made private: its documents leave Hister
+        self.assertTrue(all("/v/team/n/" in q for q in gone))
+        self.assertFalse([k for k in self.st.push.rows() if k.startswith("/v/")])
+        self.assertEqual(len(self.st.push.rows()), 4)                      # the default vault's rows are untouched
+        self.st.push.save_row("/v/gone/X.md", "https://kura.test/v/gone/n/X", "x", "ok")
+        FakeHister.refuse = True
+        try:
+            r = self.st.push.run([(self.st.default, kura.pages.visible(self.st.default), self.st.default.head)], [])
+        finally:
+            FakeHister.refuse = False
+        self.assertIn("/v/gone/X.md", self.st.push.rows())                # Hister said no: kept, and tried again
+        self.assertEqual((r["complete"], self.st.push.pending), (False, True))
+        self.st.push.run([(self.st.default, kura.pages.visible(self.st.default), self.st.default.head)], [])
+        self.assertNotIn("/v/gone/X.md", self.st.push.rows())
+        with self.assertRaises(ValueError):
+            self.st.push.run_once(self.st.by_name["work"], kura.pages.visible(self.st.by_name["work"]))
 
 
 def tearDownModule():
