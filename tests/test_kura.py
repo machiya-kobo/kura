@@ -1396,6 +1396,16 @@ class SignInTest(unittest.TestCase):
         body = urlencode({"name": name, "password": password, "next": nxt}).encode()
         return send("/signin", body, Origin=origin, Content_Type=self.FORM)
 
+    def test_the_sign_in_page_has_its_stylesheet(self):
+        """A signed-out browser loads the shared UI the sign-in page needs, and nothing of Kura's own."""
+        self.assertEqual(as_("/static/machiya.css")[0], 200)
+        self.assertEqual(as_("/static/icons/kura.svg")[0], 200)
+        for path in ("/static/kura.css", "/static/kura.js", "/", "/api/search?q=bamboo"):
+            self.assertEqual(as_(path)[0], 401, path)
+        from vaultkit import identity
+        kura.IDENTITY = identity.Identity(self.path, "kura", signin=False)          # sign-in off: all behind the gate
+        self.assertEqual(as_("/static/machiya.css")[0], 401)
+
     def test_sign_in_read_sign_out(self):
         st, _, body = as_("/signin?next=/n/Projects/Lantern")
         self.assertEqual(st, 200)

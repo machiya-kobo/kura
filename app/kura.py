@@ -127,6 +127,7 @@ PREFS_DB = os.path.join(os.path.dirname(os.path.abspath(DB)), "prefs.sqlite3")
 # The origins a same-origin check accepts for sign-in, sign-out and a prefs PUT made with a cookie: KURA_PUBLIC_URL.
 # Without it the request's own Host counts, over https only; over plain http sign-in then always refuses (signin.py).
 ORIGINS = (PUBLIC_URL,) if PUBLIC_URL else ()
+SHARED_UI = ("/static/machiya.css", "/static/machiya.js", "/static/machiya-sw.js")   # vaultkit's, before the gate
 SIGNIN_LIMITS = {"/signin": signin.MAX_FORM, "/signout": signin.MAX_FORM, "/api/pair": signin.MAX_PAIR}
 shell.NIWA_URL = os.environ.get("KURA_NIWA_URL", "").rstrip("/")
 shell.KONBINI_URL = api.KONBINI_URL = os.environ.get("KURA_KONBINI_URL", "").rstrip("/")
@@ -512,6 +513,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, self.status(self.owner()))
         if path == "/signin" and IDENTITY is not None:      # the form, before the gate (404 when sign-in is off)
             return self.reply(*signin.handle_get(IDENTITY, self.headers, url.query))
+        if IDENTITY is not None and IDENTITY.signin and (path in SHARED_UI or path.startswith("/static/icons/")):
+            return self.static(path[8:], query)          # the sign-in page's stylesheet and icons: vendored, no notes
         if not self.allowed():
             return self.refuse()
         if path == "/api/prefs" and IDENTITY is not None:
