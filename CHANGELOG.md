@@ -30,6 +30,13 @@ show the running version.
   `KURA_AUTH=header` with `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`, `KURA_ACCEPT_APP_CAPS`. Without the file
   nothing changes.
 - `default` and `shared` can't be vault names any more (they are words in an identity grant).
+- **Sign-in, pairing and preferences** (the identity plan's phase 6; vaultkit v0.11.0): with an identity file,
+  `KURA_SIGNIN=1` turns on the built-in sign-in (`/signin`, `/signout`; a page refused with 401 links to it, and
+  Settings has Sign Out for a signed-in browser). `POST /api/pair` trades a Shiori pairing code for a device token,
+  and `GET`/`PUT /api/prefs` keeps each principal's preferences in `prefs.sqlite3` next to `KURA_DB`. Sign-in, sign-out
+  and a prefs `PUT` made with a cookie must come from `KURA_PUBLIC_URL`'s origin (or, without it, Kura's own https
+  page); over plain http, set `KURA_PUBLIC_URL`. Any other `POST` or `PUT` answers 405. Without an identity file the
+  new routes are 404 and nothing else changes.
 
 ## 0.4.3
 
