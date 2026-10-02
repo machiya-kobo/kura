@@ -8,9 +8,13 @@ cannot drift. It reads the README's runnable blocks: an HTML comment on the line
     <!-- quickstart-expect: PATH:STEP -->     then a ```text fence: the output the block before it must show; every
                                                non-empty line has to appear in the output (as a substring)
 
-Paths: `standalone` (every run), `container` (every container run), `container-docker` or `container-podman` (the engine of the run),
-`container-debian` (installing podman), `native` (every native run), and `native-debian`, `native-openbsd`, `native-freebsd`, `native-netbsd` (the packages of one OS). A container run executes
-`standalone` + `container-debian` (over ssh only) + `container-<engine>` + `container`; a native run executes `standalone` + `native-<this OS>` + `native`. All blocks of a run go
+Paths: `quick` (the Quickstart, the native run on Linux and macOS) and `quick-debian` (its packages on Debian),
+`standalone` (every run), `container` (every container run), `container-docker` or `container-podman` (the engine of the run),
+`container-debian` (installing podman), `native` (every native run on a BSD), and `native-openbsd`, `native-freebsd`,
+`native-netbsd` (the packages of one OS). A container run executes `standalone` + `container-debian` (over ssh only) +
+`container-<engine>` + `container`; a native run executes `quick-<this OS>` + `quick` on Linux and macOS, and
+`standalone` + `native-<this OS>` + `native` on a BSD. A step named `serve` starts a server in the foreground, as a reader
+types it: the test runs it in the background and waits until Kura reports `"ready": true`. All blocks of a run go
 into ONE POSIX shell session (`sh -eu`: dash, ksh or FreeBSD sh, so the blocks run on the BSDs, where bash is not installed), so variables such as PY and background jobs carry over, like in a terminal.
 A step named `packages` installs system packages (it needs root, doas or sudo): `--skip-packages` leaves it out.
 
@@ -102,6 +106,27 @@ def engine():
     return None, None
 
 
+def native_paths(osname):
+    """The README paths of a native run on this operating system."""
+    if osname in ("debian", "linux", "darwin"):
+        return ("quick-" + osname, "quick")
+    return ("standalone", "native-" + osname, "native")
+
+
+def script_lines(steps, cwd, work):
+    """The shell script of a run: every block between markers; a `serve` block goes to the background (its output to
+    work/serve.log) and the script waits until Kura has read the vault."""
+    script = ["set -eu", "cd " + cwd]
+    for n, s in enumerate(steps):
+        body = s["body"]
+        if s["step"] == "serve":
+            body = "{\n%s\n} > %s/serve.log 2>&1 &\n%s" % (
+                body, work, "for i in $(seq 60); do curl -s http://127.0.0.1:8080/api/status | grep -q '\"ready\": true' "
+                            "&& break; sleep 1; done")
+        script += ["echo '@@BEGIN %d@@'" % n, body, "echo '@@END %d@@'" % n]
+    return script
+
+
 def show(label, paths, steps):
     print("== %s: %s" % (label, " + ".join(paths)))
     for n, s in enumerate(steps, 1):
@@ -134,9 +159,7 @@ def execute(label, paths, args, source, log):
         if label == "container" and not engine()[0]:
             print("   no working container engine (docker or podman): cannot run the container path")
             return False
-        script = ["set -eu", "cd " + clone]
-        for n, s in enumerate(steps):
-            script += ["echo '@@BEGIN %d@@'" % n, s["body"], "echo '@@END %d@@'" % n]
+        script = script_lines(steps, clone, work)
         script_file = os.path.join(work, "run.sh")
         open(script_file, "w").write("\n".join(script) + "\n")
         out_file = os.path.join(work, "out.txt")
@@ -174,7 +197,7 @@ def execute_ssh(args, source, log):
     host, osname = args.ssh, remote_os(args.ssh)
     container = args.only == "container"
     paths = ("standalone", "container-" + osname, "container-podman", "container") if container else \
-        ("standalone", "native-" + osname, "native")
+        native_paths(osname)
     out = subprocess.run(["git", "-C", source, "show", "HEAD:README.md"], capture_output=True, text=True, check=True).stdout
     steps = steps_for(parse(out), paths, args.skip_packages)
     show("%s over ssh to %s (%s)" % ("container" if container else "native", host, osname), paths, steps)
@@ -189,9 +212,7 @@ def execute_ssh(args, source, log):
     try:
         tar, script_file = os.path.join(local, "kura.tar"), os.path.join(local, "run.sh")
         subprocess.run(["git", "-C", source, "archive", "--format=tar", "--prefix=kura/", "-o", tar, "HEAD"], check=True)
-        script = ["set -eu", "cd " + work + "/kura"]
-        for n, st in enumerate(steps):
-            script += ["echo '@@BEGIN %d@@'" % n, st["body"], "echo '@@END %d@@'" % n]
+        script = script_lines(steps, work + "/kura", work)
         open(script_file, "w").write("\n".join(script) + "\n")
         for f, dest in ((tar, work + "/kura.tar"), (script_file, work + "/run.sh")):
             subprocess.run(["scp", "-q", "-o", "BatchMode=yes", f, "%s:%s" % (host, dest)], check=True)
@@ -272,8 +293,7 @@ def main():
     if args.only in (None, "container"):
         runs.append(("container", ("standalone", "container-" + (engine()[0] or "podman"), "container")))
     if args.only in (None, "native"):
-        osname = this_os()
-        runs.append(("native", ("standalone", "native-" + osname, "native")))
+        runs.append(("native", native_paths(this_os())))
     results = [run_path(label, paths, args, args.source, log) for label, paths in runs]
     print("quickstart-test: %s" % ("all steps ok" if all(results) else "FAILED"))
     sys.exit(0 if all(results) else 1)

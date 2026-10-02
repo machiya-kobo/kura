@@ -13,24 +13,70 @@
 
 ## Quickstart
 
-Two ways to try Kura: **alone** with the sample vault in `sample-vault/` (A), or **as part of the Machiya stack** (B). The
-standalone path needs no account, no network service and no Tailscale: Kura listens on `127.0.0.1` with the identity
-check off (`KURA_AUTH=open`), which is for a demo on your own machine only.
+Kura alone on your own machine, reading the sample vault in `sample-vault/` (a fictional paper-lantern workshop and a
+trip to Kyoto, 27 notes): no account, no Tailscale, no identity file. You need `git`, `curl` and Python 3.13; on Debian 13:
 
-### A. Standalone
-
-You need `git` and `curl`, and either **a container engine** (Docker or Podman; tested with Podman 5.4) or **Python 3.13**
-with `markdown` 3.7 or later and `pyyaml` (below, for Debian, OpenBSD, FreeBSD and NetBSD). Start in a clone of this repository:
-
-```sh
-git clone https://github.com/machiya-kobo/kura.git
-cd kura
+<!-- quickstart: quick-debian:packages -->
+```bash
+sudo apt-get update && sudo apt-get install -y git curl python3-venv
 ```
 
-Kura reads a git repository. The sample vault is a plain folder of Markdown notes (a fictional paper-lantern workshop and a
-trip to Kyoto, 27 notes), so both ways below start by turning a copy of it into a repository.
+**1. Clone Kura:**
 
-#### A1. With a container (Docker or Podman)
+```sh
+git clone https://github.com/machiya-kobo/kura.git && cd kura
+```
+
+**2. Install its two Python packages** (`markdown` 3.7 or later and `pyyaml`) in a virtual environment:
+
+<!-- quickstart: quick:python -->
+```bash
+python3 -m venv .venv && .venv/bin/pip install -q 'markdown>=3.7' pyyaml
+```
+
+**3. Start it on the sample vault**, listening on `127.0.0.1:8080` with the identity check off (`KURA_AUTH=open`, for
+your own machine only):
+
+<!-- quickstart: quick:serve -->
+```bash
+KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR="$PWD" KURA_REPO_SUBDIR=sample-vault/personal .venv/bin/python app/kura.py
+```
+
+**4. Open <http://127.0.0.1:8080/>**: folders, notes and a preview (one column and a tab bar on a phone). Search for
+`bamboo`, `title:kyoto` or `tag:topic/travel`. The API answers too, from another terminal:
+
+<!-- quickstart: quick:check -->
+```bash
+curl -s 'http://127.0.0.1:8080/api/search?q=title:bamboo' | grep '"path"'
+```
+
+<!-- quickstart-expect: quick:check -->
+```text
+    "path": "Projects/Bamboo frame jig.md",
+    "path": "Notes/Sourcing bamboo.md",
+    "path": "Notes/Bamboo frames.md",
+```
+
+Ctrl-C stops it. To read your own vault, point `KURA_REPO_DIR` at its checkout (and `KURA_REPO_SUBDIR` at the folder
+of notes, if they aren't at the top). `tools/quickstart-test` runs these steps from a fresh clone and checks the output.
+
+## Who can use it
+
+- **You, on localhost:** `KURA_AUTH=open` with `KURA_BIND=127.0.0.1`, as in the Quickstart. Kura then answers only to an
+  IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS`.
+- **People on your tailnet:** listen on `127.0.0.1`, put `tailscale serve` in front, and list their Tailscale logins in
+  `KURA_USERS` (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody). `/api/status` always answers, for monitoring.
+- **People, agents, sign-in or Shiori devices:** turn on Machiya's identity file with `python3 -m vaultkit.identity setup`,
+  which prints the settings for each room. It's off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
+- Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`,
+  `KURA_ACCEPT_APP_CAPS` and `KURA_PUBLIC_URL` (under Settings).
+
+## More ways to run it
+
+These start in a clone, like the Quickstart. Kura reads a git repository (or a folder inside one), so the container and
+the BSD paths make a copy of the sample vault a repository of its own, as your vault would be.
+
+### With a container (Docker or Podman)
 
 If you have neither, on Debian 13 install `podman` (and `catatonit`, the small init program that `--init` uses with podman):
 
@@ -97,33 +143,18 @@ What you should see:
     "path": "Notes/Bamboo frames.md",
 ```
 
-Open <http://127.0.0.1:8080/> in a browser: the folders on the left, the notes in the middle and a preview on the right
-(one column and a tab bar on a phone). Try the search box with `bamboo`, `title:kyoto` or `tag:topic/travel`. Stop it with:
+Open <http://127.0.0.1:8080/>, as in the Quickstart. Stop it with:
 
 <!-- quickstart: container:stop -->
 ```bash
 $DOCKER rm -f kura
 ```
 
-#### A2. Natively (no container)
+### Natively on the BSDs
 
-Install the packages for your system, then run `app/kura.py` from the clone. Kura needs Python 3.13, `markdown` 3.7 or
-later, `pyyaml`, SQLite with FTS5 (every package below has it) and `git`. Run the package commands as root (or with `sudo`/`doas`).
-
-**Debian 13** (a virtual environment, so the versions are the ones Kura wants):
-
-<!-- quickstart: native-debian:packages -->
-```bash
-sudo apt-get update
-sudo apt-get install -y git curl python3 python3-venv
-```
-
-<!-- quickstart: native-debian:python -->
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -q 'markdown>=3.7' pyyaml
-PY=.venv/bin/python
-```
+On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages, then run
+`app/kura.py` from the clone. Kura needs Python 3.13, `markdown` 3.7 or later, `pyyaml`, SQLite with FTS5 (every package
+below has it) and `git`. Run the package commands as root (or with `sudo`/`doas`).
 
 **OpenBSD 7.9:**
 
@@ -163,7 +194,7 @@ PATH=/usr/pkg/bin:$PATH
 PY=python3.13
 ```
 
-Then, on any of them (`$PY` is the Python you just set up), make the sample vault a repository and start Kura:
+Then (`$PY` is the Python you just set up), make the sample vault a repository and start Kura:
 
 <!-- quickstart: native:vault -->
 ```bash
@@ -189,7 +220,7 @@ curl -s http://127.0.0.1:8080/api/status | grep -E '"(notes|ready|error)": '
 curl -s 'http://127.0.0.1:8080/api/search?q=title:bamboo' | grep '"path"'
 ```
 
-The output is the same as in A1:
+The output is the same as with a container:
 
 <!-- quickstart-expect: native:check -->
 ```text
@@ -211,17 +242,18 @@ kill "$(cat data/kura.pid)"
 [`docs/install/bsd.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/install/bsd.md) in the Machiya repository turns the
 native install into a service (rc.d scripts, a user of its own, `tailscale serve` in front).
 
-`tools/quickstart-test` runs exactly the commands above from a fresh clone and checks the output shown, so this section
-and the test cannot drift: `tools/quickstart-test --dry-run` lists the steps, `tools/quickstart-test` runs them.
+`tools/quickstart-test` runs exactly the commands of the Quickstart and of this section from a fresh clone and checks the
+output shown, so the README and the test cannot drift: `tools/quickstart-test --dry-run` lists the steps,
+`tools/quickstart-test` runs them (`--ssh HOST` on a clean BSD or Debian machine).
 
-### B. As part of the Machiya stack
+### As part of the Machiya stack
 
 Machiya is several small apps around one vault. To run Kura next to the others, clone `machiya`, `kura`, `niwa` and
 `konbini` side by side and follow the [Quickstart in the Machiya repository's README](https://github.com/machiya-kobo/machiya#quickstart):
 `compose/demo-init` prepares the sample vault and a `.env`, and `docker compose up -d --build` brings up the whole stack
 (Hister and SearXNG for search, Kura, Niwa, Konbini). `demo-init --mirror` keeps a single copy of the vault for all of them
 (`compose/mirror.yml`). The compose files and `.env.example` there are the place to look for the stack's own settings.
-What changes for Kura, compared with A:
+What changes for Kura, compared with the Quickstart:
 
 - **The port:** the stack publishes Kura on `127.0.0.1:8083` (`KURA_PORT`), not 8080.
 - **The vault** comes from the stack's `VAULT_REPO_URL` (Kura clones it), or, with the shared copy, from a read-only
@@ -230,8 +262,7 @@ What changes for Kura, compared with A:
 - **The other rooms:** `MACHIYA_ROOMS` (the Rooms switcher in the header), `KURA_NIWA_URL` and `KURA_KONBINI_URL`
   (the "View in Niwa" and "View Card in Konbini" links), and `KURA_HISTER_URL` (push every note into Hister).
 - **Who may read it:** the stack's compose sets `KURA_AUTH=open`, which is only safe because every published port binds
-  `127.0.0.1`. To let others in, put a proxy in front that sets `Tailscale-User-Login`, set `KURA_AUTH=tailscale` and list
-  the logins in `KURA_USERS`. A native install also has `KURA_BIND` and `KURA_ENV_FILE` (settings from a file).
+  `127.0.0.1`; "Who can use it" above says how to let others in.
 - **One look across rooms:** with the rooms on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and text
   size between them.
 - **Links:** `KURA_PUBLIC_URL` (the base of every note's URL), `MACHIYA_SOURCE_URL` (a source-code link in the footer)
@@ -272,7 +303,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 | `KURA_POLL` | `60` | seconds between fetches (min 10) |
 | `KURA_USERS` | — | allowed `Tailscale-User-Login`s, comma-separated; `*` = anyone; unset = nobody. `/api/status` is always open, without the repo URL, the folder and error details (those need the owner gate) |
 | `KURA_AUTH` | `tailscale` | `tailscale` = the `KURA_USERS` allow-list; `open` = no identity check (a startup warning; the log names everyone `local`), only for localhost or a trusted LAN; it answers only to an IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS` in `Host` (DNS rebinding). Anything else refuses to start |
-| `MACHIYA_IDENTITY_FILE` | — | Machiya's identity file (vaultkit's `identity`; Machiya's `docs/plans/identity.md`): people, agents and services with grants. Set, it replaces `KURA_USERS`: a principal needs the `kura` `read` grant, and reads only the vaults its grant allows (`"default"`, `"shared"` or names; agents get the default and shared vaults by default, never a private one unless named). A vault it may not read answers like one that doesn't exist. `/api/status`'s full view is the owner's. Mount the file's directory read-only |
+| `MACHIYA_IDENTITY_FILE` | — | Machiya's identity file (vaultkit's `identity`; [Machiya's `docs/identity.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md)): people, agents and services with grants. Set, it replaces `KURA_USERS`: a principal needs the `kura` `read` grant, and reads only the vaults its grant allows (`"default"`, `"shared"` or names; agents get the default and shared vaults by default, never a private one unless named). A vault it may not read answers like one that doesn't exist. `/api/status`'s full view is the owner's. Mount the file's directory read-only |
 | `KURA_AUTH_HEADER` | — | with an identity file and `KURA_AUTH=header`: the trusted proxy's login header (`Remote-User`, …) |
 | `KURA_BIND_BEHIND_PROXY` | — | `1`: with an identity file, `KURA_AUTH=tailscale` or `header` may bind a non-loopback address because a proxy (the Tailscale sidecar) is the only way in. Without it Kura refuses to start on anything but 127.0.0.1 |
 | `KURA_ACCEPT_APP_CAPS` | — | `1`: read Tailscale's forwarded app capability (`Tailscale-App-Capabilities`) for tagged nodes. Only where Serve forwards it (`--accept-app-caps`, Tailscale v1.92+): an older Serve passes a client's own copy through |
@@ -305,7 +336,7 @@ docker run --init -p 127.0.0.1:8080:8080 -v kura-data:/data \
   -e KURA_AUTH=open kura
 ```
 
-`token` is a file holding the git host's access token (leave out the `-v` and `KURA_REPO_TOKEN_FILE` lines for a public repository; use an `ssh://` or `file://` URL for other setups). `KURA_AUTH=open` turns the identity check off: anyone who can reach port 8080 reads every note, which is why the port is published on `127.0.0.1` only. Open it at http://127.0.0.1:8080/. To serve other people, put Kura behind `tailscale serve` and use `KURA_USERS` instead (below).
+`token` is a file holding the git host's access token (leave out the `-v` and `KURA_REPO_TOKEN_FILE` lines for a public repository; use an `ssh://` or `file://` URL for other setups). `KURA_AUTH=open` turns the identity check off: anyone who can reach port 8080 reads every note, which is why the port is published on `127.0.0.1` only. Open it at http://127.0.0.1:8080/. To serve other people, see "Who can use it".
 
 **Native, on a checkout you already have** (read-only, no clone):
 
@@ -314,7 +345,7 @@ pip install 'markdown>=3.7' pyyaml
 KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB=/tmp/kura.sqlite3 python3 app/kura.py
 ```
 
-**Who may read it.** Kura trusts the `Tailscale-User-Login` header, which `tailscale serve` sets after Tailscale has checked who is connecting, and allows the logins in `KURA_USERS` (`*` = anyone, unset = nobody). So listen on `127.0.0.1` (`KURA_BIND`), put `tailscale serve` in front, and block the port from outside. `KURA_AUTH=open` has no check at all: only for localhost or a trusted LAN. `/api/status` always answers, for monitoring.
+**Who may read it:** see "Who can use it" above. With `tailscale serve`, Kura trusts the `Tailscale-User-Login` header it sets, so listen on `127.0.0.1` (`KURA_BIND`) and block the port from outside.
 
 **More:** native installs on the BSDs (packages only, rc.d scripts, an env file for the settings) are in `docs/install/` in the Machiya repository, and so is running Kura with the other rooms. The vault's own layout (frontmatter, tags, folders) is described there too. Kura never writes to the vault.
 
