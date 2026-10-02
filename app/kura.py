@@ -8,6 +8,7 @@ Every request needs a Tailscale-User-Login in KURA_USERS (`*` = anyone), except 
 probes read; KURA_AUTH=open drops that check for localhost or a trusted LAN. Native installs (docs/install/bsd.md in
 machiya) put the settings in a file: KURA_ENV_FILE or --env-file PATH, read before anything else.
 """
+import ipaddress
 import json
 import os
 import sys
@@ -79,6 +80,34 @@ def public_url(value):
 
 
 PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
+
+
+def host_name(value):
+    """A Host header or a configured name, compared the way a browser means it: lowercase, no port, no trailing dot,
+    no IPv6 brackets. "" when it can't be read."""
+    try:
+        host = urlsplit("//" + (value or "").strip()).hostname or ""
+    except ValueError:
+        return ""
+    return host.rstrip(".")
+
+
+# KURA_AUTH=open answers only to these names in Host, plus any IP literal: a page on another site whose name is pointed
+# at this machine (DNS rebinding) arrives with that site's name in Host, and would otherwise read every note.
+ALLOWED_HOSTS = {"localhost", (urlsplit(PUBLIC_URL).hostname or "").rstrip(".")} | {
+    host_name(h) for h in os.environ.get("KURA_ALLOWED_HOSTS", "").split(",")}
+ALLOWED_HOSTS.discard("")
+
+
+def host_allowed(value, allowed=None):
+    host = host_name(value)
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host.split("%", 1)[0])           # an IP literal (a v6 zone id aside) is never rebound
+        return True
+    except ValueError:
+        return host in (ALLOWED_HOSTS if allowed is None else allowed)
 api.PUBLIC_URL = PUBLIC_URL
 api.SHIORI_LINKS = os.environ.get("KURA_SHIORI_LINKS", "").strip().lower() in ("1", "true", "yes", "on")
 HISTER_URL = os.environ.get("KURA_HISTER_URL", "").rstrip("/")         # set: push every note into Hister
@@ -314,6 +343,8 @@ class Handler(BaseHTTPRequestHandler):
         return out
 
     def do_GET(self):
+        if AUTH == "open" and not host_allowed(self.headers.get("Host")):
+            return self.send(403, "forbidden: unknown Host (KURA_ALLOWED_HOSTS)\n", "text/plain")
         url = urlsplit(self.path)
         path, query = unquote(url.path), parse_qs(url.query)
         if path == "/api/status":

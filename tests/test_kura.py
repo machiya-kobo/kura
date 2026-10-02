@@ -346,6 +346,30 @@ class AuthTest(unittest.TestCase):
             kura.AUTH = "tailscale"
         self.assertEqual(get("/", user=None)[0], 403)
 
+    def test_open_mode_answers_only_known_hosts(self):
+        """DNS rebinding: a page on evil.test, its name pointed at Kura, sends Host: evil.test (and a matching Origin)."""
+        allowed = {"localhost", "kura.test", "notes.lan"}
+        for good in ("localhost", "LOCALHOST:8080", "localhost.", "kura.test", "Kura.Test.:443", "notes.lan",
+                     "127.0.0.1", "127.0.0.1:8080", "[::1]", "[::1]:8080", "192.168.1.5", "[fe80::1%25eth0]:80"):
+            self.assertTrue(kura.host_allowed(good, allowed), good)
+        for bad in ("", None, "evil.test", "evil.test:8080", "localhost.evil.test", "kura.test.evil.test", "[::1",
+                    "0x7f.1", "2130706433"):
+            self.assertFalse(kura.host_allowed(bad, allowed), bad)
+        self.assertIn("kura.test", kura.ALLOWED_HOSTS)                  # KURA_PUBLIC_URL's name
+        port = SERVER.server_address[1]
+        kura.AUTH = "open"
+        try:
+            for host, status in (("evil.test", 403), ("evil.test:%d" % port, 403), ("127.0.0.1:%d" % port, 200),
+                                 ("localhost:%d" % port, 200), ("kura.test", 200)):
+                st, _, body = fetch("/api/search?q=bamboo", headers={"Host": host})
+                self.assertEqual(st, status, host)
+                if status == 403:
+                    self.assertNotIn("Lantern", body)
+            self.assertEqual(fetch("/api/status", headers={"Host": "evil.test"})[0], 403)
+        finally:
+            kura.AUTH = "tailscale"
+        self.assertEqual(fetch("/api/search?q=bamboo", headers={"Host": "evil.test"})[0], 200)   # the allow-list's job
+
     def run_kura(self, env, code="import kura; print(kura.AUTH, kura.BIND, kura.PORT, kura.POLL)"):
         full = {k: v for k, v in os.environ.items() if not k.startswith("KURA_")}
         full.update(KURA_REPO_DIR=REPO, KURA_REPO_URL="", **env)
