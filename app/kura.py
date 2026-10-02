@@ -275,6 +275,7 @@ def multi(query, key):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
+    timeout = 30                    # seconds a client may stay silent: one that never sends doesn't hold a thread for good
     server_version = "kura/" + VERSION
 
     def log_message(self, fmt, *args):

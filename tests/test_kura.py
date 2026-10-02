@@ -370,6 +370,18 @@ class AuthTest(unittest.TestCase):
             kura.AUTH = "tailscale"
         self.assertEqual(fetch("/api/search?q=bamboo", headers={"Host": "evil.test"})[0], 200)   # the allow-list's job
 
+    def test_a_silent_client_is_dropped(self):
+        import socket
+        old, kura.Handler.timeout = kura.Handler.timeout, 0.5
+        try:
+            s = socket.create_connection(SERVER.server_address, timeout=10)
+            s.sendall(b"GET /api/status HTTP/1.0\r\n")              # and never the blank line
+            self.assertEqual(s.recv(100), b"")                        # Kura hung up instead of waiting for good
+            s.close()
+        finally:
+            kura.Handler.timeout = old
+        self.assertEqual(kura.Handler.timeout, 30)
+
     def run_kura(self, env, code="import kura; print(kura.AUTH, kura.BIND, kura.PORT, kura.POLL)"):
         full = {k: v for k, v in os.environ.items() if not k.startswith("KURA_")}
         full.update(KURA_REPO_DIR=REPO, KURA_REPO_URL="", **env)

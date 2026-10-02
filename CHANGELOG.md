@@ -21,6 +21,7 @@ show the running version.
 - With `KURA_AUTH=open`, Kura answers only when `Host` is an IP address, `localhost`, `KURA_PUBLIC_URL`'s name or a
   name in the new `KURA_ALLOWED_HOSTS`; anything else gets 403. Before, a web page could point its own name at a
   localhost Kura (DNS rebinding) and read every note, private vaults included.
+- A client that stops sending is dropped after 30 seconds instead of holding a thread for good.
 
 ## 0.4.3
 
