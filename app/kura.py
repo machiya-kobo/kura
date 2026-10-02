@@ -30,6 +30,7 @@ import sites  # noqa: E402
 import push  # noqa: E402
 import search  # noqa: E402
 import shell  # noqa: E402
+from vaultkit import identity  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
 VERSION = "0.5.0"
@@ -44,16 +45,18 @@ POLL = max(10, int(os.environ.get("KURA_POLL", "60")))
 USERS = set(filter(None, (u.strip() for u in os.environ.get("KURA_USERS", "").split(","))))
 
 
-def auth_mode(value):
-    """KURA_AUTH: "tailscale" (the default: Tailscale-User-Login must be in KURA_USERS) or "open" (no identity check,
-    for localhost or a trusted LAN). Anything else refuses to start rather than guess."""
+def auth_mode(value, identity_file=""):
+    """KURA_AUTH: "tailscale" (the default: Tailscale-User-Login must be in KURA_USERS, or in the identity file),
+    "open" (no identity check, for localhost or a trusted LAN), or with an identity file "header" (a trusted proxy's
+    login header, KURA_AUTH_HEADER). Anything else refuses to start rather than guess."""
     value = (value or "tailscale").strip().lower()
-    if value not in ("tailscale", "open"):
-        raise SystemExit("kura: KURA_AUTH must be tailscale or open, not %r" % value)
+    allowed = ("tailscale", "open", "header") if identity_file else ("tailscale", "open")
+    if value not in allowed:
+        raise SystemExit("kura: KURA_AUTH must be %s, not %r" % (" or ".join(allowed), value))
     return value
 
 
-AUTH = auth_mode(os.environ.get("KURA_AUTH"))
+AUTH = auth_mode(os.environ.get("KURA_AUTH"), os.environ.get("MACHIYA_IDENTITY_FILE", "").strip())
 # The address Kura listens on. A native install behind `tailscale serve` binds 127.0.0.1: on a public bind the
 # Tailscale-User-Login header could be sent by anyone who reaches the port.
 BIND = os.environ.get("KURA_BIND", "0.0.0.0").strip() or "0.0.0.0"
@@ -80,6 +83,10 @@ def public_url(value):
 
 
 PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
+try:        # Machiya's identity file (MACHIYA_IDENTITY_FILE); None without one: the KURA_USERS gate, as before
+    IDENTITY = identity.load_for("kura", os.environ, bind=BIND, secure=not PUBLIC_URL.startswith("http://"))
+except identity.IdentityError as err:
+    raise SystemExit("kura: identity: %s" % err)
 
 
 def host_name(value):
@@ -285,14 +292,54 @@ class Handler(BaseHTTPRequestHandler):
 
     def actor(self):
         """Who is asking, for the log. Open mode: always "local", since nothing vouches for the header there."""
+        if IDENTITY is not None:
+            who = self.who()
+            return "%s(%s)" % (who.principal.name, who.principal.via) if who else "-"
         if AUTH == "open":
             return "local"
         return self.headers.get("Tailscale-User-Login", "")
 
+    def who(self):
+        """The identity file's answer for this request (vaultkit.identity), worked out once."""
+        if getattr(self, "_who", None) is None:
+            self._who = IDENTITY.resolve(self.headers, self.client_address[0] if self.client_address else "")
+        return self._who
+
     def allowed(self):
+        if IDENTITY is not None:
+            who = self.who()
+            return bool(who) and who.principal.can("kura", "read")
         if AUTH == "open":
             return True
         return "*" in USERS or self.headers.get("Tailscale-User-Login", "") in USERS
+
+    def owner(self):
+        """The full /api/status (repo URL, folder, error texts): the owner only. Without an identity file, everyone the
+        gate admits is the owner, as before."""
+        if IDENTITY is not None:
+            who = self.who()
+            return bool(who) and who.principal.owner
+        return self.allowed()
+
+    def visible(self):
+        """The vaults this request may read: every vault without an identity file, else the principal's grant
+        (vaultkit.identity Principal.vaults: "*", or vault names plus "default" and "shared"). A private vault is
+        readable only when named."""
+        if IDENTITY is None:
+            return list(state.sites)
+        scope = self.who().principal.vaults("kura")
+        if scope == "*":
+            return list(state.sites)
+        return [x for x in state.sites if x.name in scope or (x.default and "default" in scope)
+                or (x.shared and "shared" in scope)]
+
+    def refuse(self):
+        if IDENTITY is not None:
+            who = self.who()
+            status = who.status if not who else 403
+            body = (who.error if not who else "not allowed in kura") + "\n"
+            return self.send(status, body, "text/plain", headers=[NO_STORE])
+        return self.send(403, "forbidden\n", "text/plain")
 
     def base(self):
         return PUBLIC_URL or "https://%s" % (self.headers.get("Host") or "localhost")
@@ -309,6 +356,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         for k, v in headers:
             self.send_header(k, v)
+        for c in (self._who.cookies if getattr(self, "_who", None) is not None else ()):
+            self.send_header("Set-Cookie", c)          # a renewed session, or a bad one cleared
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
@@ -349,9 +398,12 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path, query = unquote(url.path), parse_qs(url.query)
         if path == "/api/status":
-            return self.send_json(200, self.status(self.allowed()))
+            return self.send_json(200, self.status(self.owner()))
         if not self.allowed():
-            return self.send(403, "forbidden\n", "text/plain")
+            return self.refuse()
+        self.sites = self.visible()
+        self.names = {x.name for x in self.sites}
+        shell.view.sites = self.sites               # this request's vault switch and "All Vaults"
         ctx = self.ctx()
         if path == "/manifest.webmanifest":
             return self.send(200, json.dumps(shell.manifest(ctx.theme), indent=1), "application/manifest+json",
@@ -384,11 +436,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/"):
             return self.api(path, query)
         if path == "/feed.xml":
+            if state.default.name not in self.names:
+                return self.send(404, "not found\n", "text/plain")
             return self.feed(query)
         site, rest = state.default, path
         if path.startswith("/v/"):                      # another vault: /v/<name>/n/…, /v/<name>/f/…, …
             name, _, tail = path[3:].partition("/")
             site, rest = state.by_name.get(name), "/" + tail
+            if site is not None and site.name not in self.names:
+                site = None                             # a vault this principal may not read is one that isn't there
             if site is None:
                 return self.send(404, pages.missing(ctx, state.default, path), headers=[NO_STORE])
             if site.default:                            # /v/<default>/n/X is /n/X
@@ -396,6 +452,8 @@ class Handler(BaseHTTPRequestHandler):
             if not site.ready:
                 return self.send(503, shell.message(ctx, "Starting", "This vault is still being read. Try again in a "
                                                     "minute.", site), headers=[("Retry-After", "30"), NO_STORE])
+        if site.name not in self.names:                # the default vault, not granted (a grant naming others only)
+            return self.send(404, "not found\n", "text/plain", headers=[NO_STORE])
         return self.reader(site, rest, query, ctx)
 
     # -- static ----------------------------------------------------------------------------------------------
@@ -450,7 +508,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/search":
             q = (query.get("q") or [""])[0].strip()[:300]
             everywhere = (query.get("vaults") or [""])[0] == "all"
-            names = [x.name for x in state.sites] if everywhere else [g.name]
+            names = [x.name for x in self.sites] if everywhere else [g.name]
             hits, total, err = [], 0, ""
             if q:
                 try:
@@ -480,18 +538,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def vault_sites(self, query, one=False):
         """The vaults a request asks for: ?vault=name, a comma list or `all`; omitted = the default vault only, so a
-        client that never sends it sees exactly the API it always saw. ValueError (-> 400) for an unknown name."""
+        client that never sends it sees exactly the API it always saw. ValueError (-> 400) for an unknown name; a vault
+        the principal may not read is unknown too (its name doesn't leak), and `all` means all it may read."""
         raw = ",".join(query.get("vault", [])).strip()
-        if not raw:
-            return [state.default]
         names = list(dict.fromkeys(n.strip().lower() for n in raw.split(",") if n.strip()))
-        if not names:                                   # vault=, says nothing: the default vault, as when omitted
+        if not names:                                   # omitted, or vault=, (says nothing): the default vault
+            if state.default.name not in self.names:
+                raise ValueError("no such vault: %s" % state.default.name)
             return [state.default]
         if names == ["all"]:
             if one:
                 raise ValueError("this endpoint takes one vault, not all")
-            return list(state.sites)
-        unknown = [n for n in names if n not in state.by_name]
+            return list(self.sites)
+        unknown = [n for n in names if n not in state.by_name or n not in self.names]
         if unknown:
             raise ValueError("no such vault: %s" % ", ".join(unknown))
         if one and len(names) > 1:
@@ -505,8 +564,10 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/v/"):
             name, _, rest = path[3:].partition("/")
             site = state.by_name.get(name)
-            return (site, rest[2:]) if site and rest.startswith("n/") else (None, "")
-        return (state.default, path[3:]) if path.startswith("/n/") else (None, "")
+            ok = site and site.name in self.names and rest.startswith("n/")
+            return (site, rest[2:]) if ok else (None, "")
+        ok = path.startswith("/n/") and state.default.name in self.names
+        return (state.default, path[3:]) if ok else (None, "")
 
     def note_in(self, site, path):
         if not site or not path:
@@ -522,9 +583,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"vaults": [
                 {"name": x.name, "title": x.title, "default": x.default, "private": x.private, "obsidian": x.obsidian,
                  "notes": counts.get(x.name, 0), "head": x.head, "synced_at": x.synced_at, "error": x.error}
-                for x in state.sites]})
+                for x in self.sites]})
         if path == "/api/offline":      # the service worker's pins: notes with offline: true, fetched ahead (never private)
-            return self.send_json(200, {"urls": [g.prefix + "/n/" + quote(n.slug) for g in state.sites
+            return self.send_json(200, {"urls": [g.prefix + "/n/" + quote(n.slug) for g in self.sites
                                                  if not g.private and g.ready for n in pages.visible(g) if pages.pinned(g, n)]})
         try:
             asked = self.vault_sites(query, one=path in ("/api/note", "/api/tags", "/api/folders", "/api/links"))

@@ -8,6 +8,7 @@ settings (kura.py sets NIWA_URL / KONBINI_URL from KURA_NIWA_URL / KURA_KONBINI_
 """
 import hashlib
 import os
+import threading
 
 from vaultkit import shell as house
 from vaultkit.shell import OFFLINE_PIN, e, prefs  # noqa: F401  (kura.py and pages.py use them from here)
@@ -21,6 +22,12 @@ NIWA_URL = ""                       # e.g. https://niwa.example.ts.net (no trail
 KONBINI_URL = ""
 STATUS = None                       # kura.py: a function(site) returning the footer's {"text": …, "state": "ok|stale|down"}
 SITES = []                          # kura.py: the vaults (sites.Site), the default first
+view = threading.local()            # kura.py sets view.sites per request: the vaults that request may read
+
+
+def sites():
+    """The vaults the current request may see (its identity's grant), else all of them."""
+    return getattr(view, "sites", None) or SITES
 COUNTS = lambda: {}                 # kura.py: {vault name: notes}, for the vault switch
 ROOM = "kura"
 
@@ -131,13 +138,13 @@ ICON = {    # Kura's tabs and reader glyphs; Home is the house's kura glyph (a b
 def vault_switch(site):
     """The vault chip and menu (only with more than one vault): the current vault's title, then every vault with
     its note count. A work vault's chip is yellow, so a work note never looks like a personal one."""
-    if len(SITES) < 2:
+    if len(sites()) < 2:
         return ""
     counts = COUNTS()
     rows = "".join(
         ('<b>%s<small>%s</small></b>' if x is site else '<a href="%s/">%s<small>%s</small></a>')
         % ((e(x.title), counts.get(x.name, 0)) if x is site else (e(x.prefix), e(x.title), counts.get(x.name, 0)))
-        for x in SITES)
+        for x in sites())
     return ('<details class="vaults"><summary class="chip%s" title="Vaults" aria-label="Vaults: %s">%s</summary>'
             '<nav class="menu" aria-label="Vaults">%s</nav></details>'
             % (" private" if site.private else "", e(site.title), e(site.title), rows))

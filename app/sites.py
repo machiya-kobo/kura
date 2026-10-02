@@ -22,6 +22,9 @@ from vaultkit import Git, Mirror, Vault, read_secret
 
 NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*$")
 FLAGS = ("shared",)
+# "v" is the URL prefix; "default" and "shared" are words in an identity grant's vaults (vaultkit.identity), so a
+# vault with either name would be granted to every principal that may read the default or the shared vaults.
+RESERVED = ("v", "default", "shared")
 
 
 DEFAULT_NAME, DEFAULT_TITLE = "notes", "Notes"      # the one vault of an install without KURA_VAULTS
@@ -72,8 +75,9 @@ def parse(raw):
             raise SystemExit("kura: KURA_VAULTS: %r: a flag goes on the name: %s+shared:Title" % (name, name))
         if flags and not out:
             raise SystemExit("kura: KURA_VAULTS: %r is the default vault, which is never private: no +shared" % name)
-        if not NAME_RE.match(name) or name == "v":
-            raise SystemExit("kura: KURA_VAULTS: %r is not a vault name (lowercase letters, digits, -; not \"v\")" % name)
+        if not NAME_RE.match(name) or name in RESERVED:
+            raise SystemExit("kura: KURA_VAULTS: %r is not a vault name (lowercase letters, digits, -; not v, default "
+                             "or shared)" % name)
         if any(name == o[0] for o in out):
             raise SystemExit("kura: KURA_VAULTS: %r twice" % name)
         source, _, subdir = rest.strip().partition("#")

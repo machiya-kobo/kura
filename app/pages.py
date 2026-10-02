@@ -310,13 +310,13 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
     """hits: [(site, note, plain-text snippet)] from the full-text index (search.py), best first: the vault being read,
     or with `everywhere` every vault (the owner's "All Vaults"; the response is then never stored)."""
     action = g.prefix + "/search"
-    scope_sites = shell.SITES if everywhere else [g]
+    scope_sites = shell.sites() if everywhere else [g]
     box = shell.house.search_box(q, action, "Search Notes" if g.default else "Search " + g.title, "Search every note")
     if not q:
         box = box.replace('enterkeyhint="search"', 'enterkeyhint="search" autofocus', 1)
     if everywhere:
         box = box.replace("</form>", '<input type="hidden" name="vaults" value="all"></form>', 1)
-    if len(shell.SITES) > 1:
+    if len(shell.sites()) > 1:
         other = ('<a href="%s?q=%s">%s Only</a>' % (action, quote(q), e(g.title))) if everywhere else \
             ('<a href="%s?q=%s&amp;vaults=all">All Vaults</a>' % (action, quote(q)))
         box += '<p class="muted scope">Searching <b>%s</b> &middot; %s</p>' % ("All Vaults" if everywhere else e(g.title), other)

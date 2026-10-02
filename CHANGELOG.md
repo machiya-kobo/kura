@@ -22,6 +22,14 @@ show the running version.
   name in the new `KURA_ALLOWED_HOSTS`; anything else gets 403. Before, a web page could point its own name at a
   localhost Kura (DNS rebinding) and read every note, private vaults included.
 - A client that stops sending is dropped after 30 seconds instead of holding a thread for good.
+- **Identity** (Machiya's identity plan, phase 3; vaultkit v0.10.0): with `MACHIYA_IDENTITY_FILE`, Kura asks the
+  identity file who is calling (a token, a Tailscale login or tagged node, a trusted proxy header, a session) instead
+  of `KURA_USERS`. A principal needs the `kura` `read` grant and reads only the vaults it grants: an agent gets the
+  default and shared vaults, never a private one unless its grant names it, whatever it asks; a vault it may not read
+  answers exactly like one that doesn't exist. `/api/status`'s full view is the owner's. New settings:
+  `KURA_AUTH=header` with `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`, `KURA_ACCEPT_APP_CAPS`. Without the file
+  nothing changes.
+- `default` and `shared` can't be vault names any more (they are words in an identity grant).
 
 ## 0.4.3
 

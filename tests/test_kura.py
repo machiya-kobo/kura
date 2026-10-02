@@ -1121,6 +1121,21 @@ class SharedVaultTest(unittest.TestCase):
         st, h, _ = fetch("/v/work/feed.xml")
         self.assertEqual((st, h["Cache-Control"]), (404, "no-store"))
 
+    def test_an_agent_reads_the_shared_vault(self):
+        from vaultkit import identity
+        folder = os.path.join(TMP, "identity-shared")
+        tokens = write_identity(folder)
+        saved, kura.IDENTITY = kura.IDENTITY, identity.Identity(os.path.join(folder, "identity.toml"), "kura")
+        try:
+            agent = {"Authorization": "Bearer " + tokens["mcp"]}
+            _, _, body = as_("/api/vaults", **agent)
+            self.assertEqual([v["name"] for v in json.loads(body)["vaults"]], ["personal", "team"])   # not work
+            self.assertEqual(json.loads(as_("/api/search?q=okapi&vault=team", **agent)[2])["total"], 2)
+            self.assertEqual(as_("/v/team/n/Guides/Onboarding", **agent)[0], 200)
+            self.assertEqual(as_("/v/work/n/Runbooks/Zebrafish%20deploy", **agent)[0], 404)
+        finally:
+            kura.IDENTITY = saved
+
     def test_offline_pins(self):
         urls = getj("/api/offline")[1]["urls"]
         self.assertIn("/v/team/n/Guides/Onboarding", urls)
@@ -1176,6 +1191,147 @@ class SharedVaultTest(unittest.TestCase):
         self.assertNotIn("/v/gone/X.md", self.st.push.rows())
         with self.assertRaises(ValueError):
             self.st.push.run_once(self.st.by_name["work"], kura.pages.visible(self.st.by_name["work"]))
+
+
+def write_identity(folder):
+    """An identity file (vaultkit.identity) for the tests: the owner, an agent with a token, a person allowed the work
+    vault only, a person with nothing, and a service without a kura grant. -> {name: token}."""
+    from vaultkit import identity
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "session.key"), "w") as f:
+        f.write("k" * 43)
+    data = {"version": 1, "session_key_file": "session.key", "principals": {
+        "owner": {"id": "ownerid000000001", "kind": "person", "owner": True, "tailscale": ["owner@test"]},
+        "mcp": {"kind": "agent", "grants": {"kura": ["read"]}},
+        "partner": {"id": "partnerid0000001", "kind": "person", "tailscale": ["partner@test"],
+                    "grants": {"kura": {"read": True, "vaults": ["work"]}}},
+        "nobody": {"id": "nobodyid00000001", "kind": "person", "tailscale": ["nobody@test"]},
+        "niwa": {"kind": "service", "grants": {"konbini": ["read"]}}}}
+    tokens = {n: identity.new_token(data, n, "test") for n in ("mcp", "niwa")}
+    identity.write_file(os.path.join(folder, "identity.toml"), data)
+    return tokens
+
+
+def as_(path, **headers):
+    """GET with these headers only (no owner login added): (status, headers, body)."""
+    req = urllib.request.Request(BASE + path, headers={k.replace("_", "-"): v for k, v in headers.items()})
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(req, timeout=10) as r:
+            return r.status, r.headers, r.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read().decode()
+
+
+class IdentityTest(unittest.TestCase):
+    """Machiya's identity file (MACHIYA_IDENTITY_FILE, vaultkit.identity): who may read Kura, and which vaults. An agent
+    gets the default and shared vaults only, whatever it asks; a private vault is readable only when its grant names
+    it, and one that isn't granted answers like one that doesn't exist."""
+
+    @classmethod
+    def setUpClass(cls):
+        from vaultkit import identity
+        folder = os.path.join(TMP, "identity")
+        cls.tokens = write_identity(folder)
+        cls.saved = kura.IDENTITY
+        kura.IDENTITY = identity.Identity(os.path.join(folder, "identity.toml"), "kura")
+
+    @classmethod
+    def tearDownClass(cls):
+        kura.IDENTITY = cls.saved
+
+    def agent(self, path):
+        return as_(path, Authorization="Bearer " + self.tokens["mcp"])
+
+    def test_who_gets_in(self):
+        self.assertEqual(as_("/", Tailscale_User_Login="owner@test")[0], 200)
+        self.assertEqual(self.agent("/api/search?q=bamboo")[0], 200)
+        st, _, body = as_("/", Tailscale_User_Login="stranger@test")
+        self.assertEqual((st, body.strip()), (403, "this login has no access"))
+        self.assertEqual(as_("/", Tailscale_User_Login="nobody@test")[0], 403)    # in the file, granted nothing
+        self.assertEqual(as_("/api/search?q=x", Authorization="Bearer " + self.tokens["niwa"])[0], 403)   # no kura grant
+        self.assertEqual(as_("/", Authorization="Bearer mch_zzzzzz_nope")[0], 401)
+        self.assertEqual(as_("/", Authorization="Bearer mch_zzzzzz_nope", Tailscale_User_Login="owner@test")[0], 401)
+        self.assertEqual(as_("/")[0], 401)                                                     # no proof at all
+        self.assertEqual(as_("/api/status")[0], 200)                                           # still open
+
+    def test_the_full_status_is_the_owners(self):
+        self.assertIn("repo", json.loads(as_("/api/status", Tailscale_User_Login="owner@test")[2]))
+        self.assertNotIn("repo", json.loads(self.agent("/api/status")[2]))
+        self.assertEqual(json.loads(self.agent("/api/status")[2])["vaults"]["work"], {"error": None})
+
+    def test_an_agent_never_reads_a_private_vault(self):
+        _, _, body = self.agent("/api/vaults")
+        self.assertEqual([v["name"] for v in json.loads(body)["vaults"]], ["personal"])
+        for path in ("/api/search?q=zebrafish&vault=work", "/api/recent?vault=work", "/api/tags?vault=work",
+                     "/api/note?path=Runbooks/Zebrafish%20deploy.md&vault=work", "/api/search?q=x&vault=personal,work"):
+            st, _, body = self.agent(path)
+            self.assertEqual(st, 400, path)
+            self.assertNotIn("Zebrafish", body, path)
+        for path in ("/api/search?q=zebrafish&vault=all", "/api/search?q=vault:work+zebrafish&vault=all",
+                     "/api/recent?vault=all&limit=50", "/api/offline", "/feed.xml?q=zebrafish",
+                     "/search?q=zebrafish&vaults=all", "/"):
+            st, _, body = self.agent(path)
+            self.assertEqual(st, 200, path)
+            self.assertNotIn("Zebrafish", body, path)
+            self.assertNotIn("/v/work", body, path)
+        for path in ("/v/work/", "/v/work/n/Runbooks/Zebrafish%20deploy", "/v/work/search?q=zebrafish",
+                     "/v/work/a/wpic.png", "//v/work/n/Runbooks/Zebrafish%20deploy", "/%76/work/"):
+            st, _, body = self.agent(path)
+            self.assertEqual(st, 404, path)                                                 # like no such vault
+            self.assertNotIn("Zebrafish runbook", body, path)                               # (the 404 echoes the path)
+            self.assertEqual(body, as_(path.replace("work", "nope"), Authorization="Bearer " + self.tokens["mcp"])[2]
+                             .replace("nope", "work"), path)                               # the same page, word for word
+        st, _, body = self.agent("/api/notes?urls=https://kura.test/v/work/n/Runbooks/Zebrafish%20deploy")
+        self.assertEqual(json.loads(body)["notes"], [])                                    # only echoed in missing
+        self.assertNotIn('class="vaults"', self.agent("/")[2])                             # one vault: no switch
+
+    def test_a_person_granted_one_private_vault(self):
+        partner = dict(Tailscale_User_Login="partner@test")
+        st, _, body = as_("/api/search?q=zebrafish&vault=work", **partner)
+        self.assertEqual((st, json.loads(body)["total"]), (200, 1))
+        self.assertEqual(as_("/v/work/n/Runbooks/Zebrafish%20deploy", **partner)[0], 200)
+        for path in ("/", "/n/Projects/Lantern", "/feed.xml", "/api/search?q=bamboo", "/api/note?path=Projects/Lantern.md"):
+            self.assertIn(as_(path, **partner)[0], (400, 404), path)                       # the default isn't granted
+        self.assertEqual([v["name"] for v in json.loads(as_("/api/vaults", **partner)[2])["vaults"]], ["work"])
+        _, _, body = as_("/api/search?q=lantern&vault=all", **partner)
+        self.assertEqual({n["vault"] for n in json.loads(body)["results"]}, {"work"})
+
+    def test_the_owner_sees_everything(self):
+        owner = dict(Tailscale_User_Login="owner@test")
+        self.assertEqual(json.loads(as_("/api/search?q=zebrafish&vault=work", **owner)[2])["total"], 1)
+        self.assertEqual(as_("/v/work/n/Runbooks/Zebrafish%20deploy", **owner)[0], 200)
+        self.assertIn('href="/v/work/"', as_("/", **owner)[2])
+
+    def test_default_vault_only_holds_for_agents_too(self):
+        """DefaultVaultOnlyTest's rule with an agent's token instead of the owner's login."""
+        for q in ("vault:work zebrafish", "title:zebrafish", "tag:topic/client", "folder:Runbooks"):
+            st, _, body = self.agent("/api/search?q=%s&vault=all" % q.replace(" ", "+"))
+            self.assertEqual((st, json.loads(body)["total"]), (200, 0), q)
+
+    def test_header_mode_needs_the_identity_file(self):
+        with self.assertRaises(SystemExit):
+            kura.auth_mode("header")
+        self.assertEqual(kura.auth_mode("header", "/etc/machiya/identity.toml"), "header")
+
+    def test_identity_settings_at_start(self):
+        """With an identity file a header mode refuses a public bind unless a proxy is the only way in."""
+        folder = os.path.join(TMP, "identity-start")
+        write_identity(folder)
+        code = "import kura; print(kura.IDENTITY.auth, kura.IDENTITY.room)"
+        env = {"MACHIYA_IDENTITY_FILE": os.path.join(folder, "identity.toml"), "KURA_VAULTS": ""}
+        r = AuthTest.run_kura(self, dict(env, KURA_BIND="0.0.0.0"), code)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("127.0.0.1", r.stderr)
+        r = AuthTest.run_kura(self, dict(env, KURA_BIND="127.0.0.1"), code)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "tailscale kura"), r.stderr)
+        r = AuthTest.run_kura(self, dict(env, KURA_BIND_BEHIND_PROXY="1"), code)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_reserved_vault_names(self):
+        for bad in ("a=/x, shared=/x", "a=/x, default:Default=/x", "a=/x, shared+shared=/x"):
+            with self.assertRaises(SystemExit, msg=bad):
+                sites.parse(bad)
 
 
 def tearDownModule():
