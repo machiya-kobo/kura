@@ -31,7 +31,7 @@ import search  # noqa: E402
 import shell  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.4.3"
+VERSION = "0.5.0"
 PORT = int(os.environ.get("KURA_PORT", "8080"))
 REPO_URL = os.environ.get("KURA_REPO_URL", "").strip()
 REPO_DIR = os.environ.get("KURA_REPO_DIR", "/data/repo")

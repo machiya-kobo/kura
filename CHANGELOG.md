@@ -4,7 +4,7 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
-## Unreleased
+## 0.5.0
 
 - `KURA_PUBLIC_URL` must be an origin (`https://kura.example`, maybe with a port) and Kura refuses to start otherwise.
   Under a path (`https://host/kura`), a work vault's note had an address clients couldn't tell from any other page
