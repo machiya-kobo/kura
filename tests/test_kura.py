@@ -1334,6 +1334,211 @@ class IdentityTest(unittest.TestCase):
                 sites.parse(bad)
 
 
+def send(path, body=b"", method="POST", **headers):
+    """A POST (or PUT) with these headers only: (status, headers, body). Content-Length is urllib's own."""
+    req = urllib.request.Request(BASE + path, data=body, method=method,
+                                 headers={k.replace("_", "-"): v for k, v in headers.items()})
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(req, timeout=10) as r:
+            return r.status, r.headers, r.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read().decode()
+
+
+def session_of(headers):
+    """The machiya_session=... pair from a response's Set-Cookie headers ("" when none sets a value)."""
+    for c in headers.get_all("Set-Cookie") or []:
+        pair = c.split(";", 1)[0]
+        if pair.startswith("machiya_session=") and pair != "machiya_session=":
+            return pair
+    return ""
+
+
+class SignInTest(unittest.TestCase):
+    """The built-in sign-in, Shiori's pairing and per-user preferences (vaultkit.signin, identity plan phase 6), with an
+    identity file whose sign-in is on (KURA_SIGNIN=1). The sign-in routes sit before the gate, /api/prefs after it."""
+
+    SITE = "https://kura.test"
+    FORM = "application/x-www-form-urlencoded"
+
+    @classmethod
+    def setUpClass(cls):
+        from vaultkit import identity
+        cls.folder = os.path.join(TMP, "identity-signin")
+        cls.tokens = write_identity(cls.folder)
+        path = os.path.join(cls.folder, "identity.toml")
+        import tomllib
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        data["principals"]["reader"] = {"id": "readerid00000001", "kind": "person", "password":
+                                        identity.hash_password("lantern-reader"), "grants": {"kura": ["read"]}}
+        data["principals"]["other"] = {"id": "otherid000000001", "kind": "person", "password":
+                                       identity.hash_password("lantern-other"), "grants": {"kura": ["read"]}}
+        data["principals"]["nobody"]["password"] = identity.hash_password("lantern-nobody")
+        cls.code, _ = identity.new_pairing(data, "reader", "iPhone")
+        identity.write_file(path, data)
+        cls.path = path
+        cls.saved = (kura.IDENTITY, kura.ORIGINS, kura.PREFS_DB)
+        kura.PREFS_DB = os.path.join(TMP, "prefs-signin.sqlite3")
+
+    @classmethod
+    def tearDownClass(cls):
+        kura.IDENTITY, kura.ORIGINS, kura.PREFS_DB = cls.saved
+
+    def setUp(self):
+        from vaultkit import identity
+        kura.IDENTITY = identity.Identity(self.path, "kura", signin=True)      # fresh throttles for every test
+        kura.ORIGINS = (self.SITE,)
+
+    def sign_in(self, name, password, origin=SITE, nxt="/"):
+        from urllib.parse import urlencode
+        body = urlencode({"name": name, "password": password, "next": nxt}).encode()
+        return send("/signin", body, Origin=origin, Content_Type=self.FORM)
+
+    def test_sign_in_read_sign_out(self):
+        st, _, body = as_("/signin?next=/n/Projects/Lantern")
+        self.assertEqual(st, 200)
+        self.assertIn('action="/signin"', body)
+        self.assertIn('value="/n/Projects/Lantern"', body)
+        st, h, body = self.sign_in("reader", "lantern-reader", nxt="/n/Projects/Lantern")
+        self.assertEqual((st, h["Location"]), (303, "/n/Projects/Lantern"), body)
+        cookie = session_of(h)
+        self.assertTrue(cookie)
+        self.assertIn("Secure", h["Set-Cookie"])
+        st, _, body = as_("/n/Projects/Lantern", Cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("Lantern", body)
+        self.assertNotIn("Zebrafish", as_("/api/search?q=zebrafish&vault=all", Cookie=cookie)[2])   # default and shared only
+        st, _, body = as_("/settings", Cookie=cookie)
+        self.assertIn('action="/signout"', body)
+        self.assertIn("Signed in as reader", body)
+        self.assertNotIn('action="/signout"', as_("/settings", Tailscale_User_Login="owner@test")[2])
+        st, h, _ = send("/signout", Origin=self.SITE, Cookie=cookie)
+        self.assertEqual((st, h["Location"]), (303, "/"))
+        cleared = [c for c in h.get_all("Set-Cookie") if c.startswith("machiya_session=")]
+        self.assertEqual(len(cleared), 1)                                   # only the clearing one, nothing renewed
+        self.assertIn("Max-Age=0", cleared[0])
+
+    def test_wrong_password_and_cross_site(self):
+        st, h, body = self.sign_in("reader", "wrong")
+        self.assertEqual((st, session_of(h)), (401, ""))
+        self.assertIn("Wrong name or password.", body)
+        self.assertNotIn("wrong", body.replace("Wrong", ""))
+        st, h, _ = self.sign_in("reader", "lantern-reader", origin="https://evil.test")
+        self.assertEqual((st, session_of(h)), (403, ""))
+        st, h, _ = send("/signin", b"name=reader&password=lantern-reader", Content_Type=self.FORM)   # no Origin at all
+        self.assertEqual((st, session_of(h)), (403, ""))
+        cookie = session_of(self.sign_in("reader", "lantern-reader")[1])
+        self.assertEqual(send("/signout", Origin="https://evil.test", Cookie=cookie)[0], 403)
+        self.assertEqual(self.sign_in("reader", "lantern-reader", nxt="//evil.test/x")[1]["Location"], "/")
+
+    def test_a_page_without_a_session_links_to_sign_in(self):
+        st, h, body = as_("/n/Projects/Lantern?p=x")
+        self.assertEqual((st, h["Cache-Control"]), (401, "no-store"))
+        self.assertIn('href="/signin?next=%2Fn%2FProjects%2FLantern%3Fp%3Dx"', body)
+        self.assertNotIn("Work Notes", body)                               # nothing about the vaults
+        self.assertNotIn("/v/work", body)
+        st, h, body = as_("/api/search?q=lantern")
+        self.assertEqual((st, h["Content-Type"].split(";")[0]), (401, "text/plain"))
+        self.assertNotIn("/signin", as_("/feed.xml")[2])
+        from vaultkit import identity
+        kura.IDENTITY = identity.Identity(self.path, "kura")                 # sign-in off: no link, no form
+        self.assertNotIn("/signin", as_("/")[2])
+        self.assertEqual(as_("/signin")[0], 404)
+        self.assertEqual(self.sign_in("reader", "lantern-reader")[0], 404)
+
+    def test_over_plain_http(self):
+        """Over http the same-origin check needs KURA_PUBLIC_URL: without it Host and Origin prove nothing."""
+        from vaultkit import identity
+        kura.IDENTITY = identity.Identity(self.path, "kura", signin=True, secure=False)
+        kura.ORIGINS = ("http://kura.test",)
+        st, h, _ = self.sign_in("reader", "lantern-reader", origin="http://kura.test")
+        self.assertEqual(st, 303)
+        self.assertNotIn("Secure", h["Set-Cookie"])
+        self.assertEqual(as_("/", Cookie=session_of(h))[0], 200)
+        self.assertEqual(self.sign_in("reader", "lantern-reader", origin="http://evil.test")[0], 403)
+        kura.ORIGINS = ()
+        host = "127.0.0.1:%d" % SERVER.server_address[1]
+        self.assertEqual(self.sign_in("reader", "lantern-reader", origin="http://" + host)[0], 403)
+
+    def test_pairing(self):
+        st, _, body = send("/api/pair", json.dumps({"code": "ZZZZ-ZZZZ", "device": "iPhone"}).encode(),
+                           Content_Type="application/json")
+        self.assertEqual(st, 401, body)
+        st, _, body = send("/api/pair", json.dumps({"code": self.code.lower(), "device": "iPhone"}).encode(),
+                           Content_Type="application/json")
+        self.assertEqual(st, 200, body)
+        d = json.loads(body)
+        self.assertEqual(d["principal"], "reader")
+        self.assertTrue(d["token"].startswith("mcd_"))
+        device = {"Authorization": "Bearer " + d["token"]}
+        st, _, body = as_("/api/search?q=bamboo", **device)
+        self.assertEqual((st, json.loads(body)["total"]), (200, 1))
+        self.assertEqual(as_("/v/work/n/Runbooks/Zebrafish%20deploy", **device)[0], 404)     # still its own grant
+        self.assertEqual(send("/api/pair", b"{}", Content_Type="text/plain")[0], 415)
+
+    def test_prefs(self):
+        st, h, body = as_("/api/prefs", Tailscale_User_Login="owner@test")
+        self.assertEqual((st, json.loads(body), h["Cache-Control"]), (200, {"prefs": {}}, "no-store"))
+        reader = session_of(self.sign_in("reader", "lantern-reader")[1])
+        other = session_of(self.sign_in("other", "lantern-other")[1])
+        put = json.dumps({"prefs": {"theme": "night", "kura.previewpane": "false"}}).encode()
+        st, _, body = send("/api/prefs", put, "PUT", Cookie=reader, Content_Type="application/json")
+        self.assertEqual(st, 403, body)                                    # a cookie: same-origin only
+        st, _, body = send("/api/prefs", put, "PUT", Cookie=reader, Origin="https://evil.test",
+                           Content_Type="application/json")
+        self.assertEqual(st, 403, body)
+        st, _, body = send("/api/prefs", put, "PUT", Cookie=reader, Origin=self.SITE, Content_Type="application/json")
+        self.assertEqual((st, json.loads(body)["prefs"]["theme"]), (200, "night"), body)
+        self.assertEqual(json.loads(as_("/api/prefs", Cookie=reader)[2])["prefs"],
+                         {"kura.previewpane": "false", "theme": "night"})
+        self.assertEqual(json.loads(as_("/api/prefs", Cookie=other)[2])["prefs"], {})       # one principal's alone
+        self.assertEqual(json.loads(as_("/api/prefs", Tailscale_User_Login="owner@test")[2])["prefs"], {})
+        agent = {"Authorization": "Bearer " + self.tokens["mcp"]}
+        st, _, body = send("/api/prefs", json.dumps({"prefs": {"theme": "day"}}).encode(), "PUT",
+                           Content_Type="application/json", **agent)
+        self.assertEqual(st, 200, body)                                    # a token needs no Origin
+        self.assertEqual(json.loads(as_("/api/prefs", **agent)[2])["prefs"], {"theme": "day"})
+        self.assertEqual(json.loads(as_("/api/prefs", Cookie=reader)[2])["prefs"]["theme"], "night")
+        st, _, _ = send("/api/prefs", json.dumps({"prefs": {"theme": None}}).encode(), "PUT",
+                        Content_Type="application/json", **agent)
+        self.assertEqual(json.loads(as_("/api/prefs", **agent)[2])["prefs"], {})
+        st, _, _ = send("/api/prefs", json.dumps({"prefs": {"Bad Key": "x"}}).encode(), "PUT",
+                        Content_Type="application/json", **agent)
+        self.assertEqual(st, 400)
+        self.assertEqual(oct(os.stat(kura.PREFS_DB).st_mode & 0o777), "0o600")
+
+    def test_prefs_need_read(self):
+        nobody = session_of(self.sign_in("nobody", "lantern-nobody")[1])   # signed in, but no kura grant
+        self.assertTrue(nobody)
+        self.assertEqual(as_("/api/prefs", Cookie=nobody)[0], 403)
+        self.assertEqual(send("/api/prefs", b'{"prefs": {}}', "PUT", Cookie=nobody, Origin=self.SITE,
+                              Content_Type="application/json")[0], 403)
+        self.assertEqual(as_("/api/prefs", Authorization="Bearer " + self.tokens["niwa"])[0], 403)
+        self.assertEqual(as_("/api/prefs")[0], 401)
+        self.assertEqual(send("/api/prefs", b'{"prefs": {}}', "PUT", Content_Type="application/json")[0], 401)
+
+    def test_routes(self):
+        self.assertEqual(send("/api/search", b"")[0], 405)                 # Kura is read-only
+        self.assertEqual(send("/n/Projects/Lantern", b"", "PUT")[0], 405)
+        self.assertEqual(send("/api/prefs", b"", "POST")[0], 405)
+        self.assertEqual(send("/signin", b"", "PUT")[0], 405)
+        st, _, _ = send("/signin", b"x" * (8 * 1024), Origin=self.SITE, Content_Type=self.FORM)
+        self.assertEqual(st, 413)
+        saved, kura.IDENTITY = kura.IDENTITY, None                         # no identity file: as before
+        try:
+            for path in ("/signin", "/signout", "/api/pair"):
+                self.assertEqual(send(path, b"", Origin=self.SITE)[0], 404, path)
+            self.assertEqual(send("/api/prefs", b"{}", "PUT", Origin=self.SITE, Content_Type="application/json")[0], 404)
+            self.assertEqual(get("/api/prefs")[0], 404)
+            self.assertEqual(get("/signin")[0], 404)
+            self.assertEqual(get("/signin", user="stranger@test")[0], 403)  # the old gate first, as before
+            self.assertEqual(send("/api/search", b"")[0], 405)
+        finally:
+            kura.IDENTITY = saved
+
+
 def tearDownModule():
     SERVER.shutdown()
     shutil.rmtree(TMP, ignore_errors=True)

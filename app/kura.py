@@ -11,6 +11,7 @@ machiya) put the settings in a file: KURA_ENV_FILE or --env-file PATH, read befo
 import ipaddress
 import json
 import os
+import sqlite3
 import sys
 import threading
 import time
@@ -31,6 +32,7 @@ import push  # noqa: E402
 import search  # noqa: E402
 import shell  # noqa: E402
 from vaultkit import identity  # noqa: E402
+from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
 VERSION = "0.5.0"
@@ -119,6 +121,13 @@ api.PUBLIC_URL = PUBLIC_URL
 api.SHIORI_LINKS = os.environ.get("KURA_SHIORI_LINKS", "").strip().lower() in ("1", "true", "yes", "on")
 HISTER_URL = os.environ.get("KURA_HISTER_URL", "").rstrip("/")         # set: push every note into Hister
 DB = os.environ.get("KURA_DB", "/data/kura.sqlite3")
+# Per-user preferences (/api/prefs, with an identity file): their own file next to KURA_DB, so clearing what was pushed
+# into Hister never clears anyone's preferences. Made on first use.
+PREFS_DB = os.path.join(os.path.dirname(os.path.abspath(DB)), "prefs.sqlite3")
+# The origins a same-origin check accepts for sign-in, sign-out and a prefs PUT made with a cookie: KURA_PUBLIC_URL.
+# Without it the request's own Host counts, over https only; over plain http sign-in then always refuses (signin.py).
+ORIGINS = (PUBLIC_URL,) if PUBLIC_URL else ()
+SIGNIN_LIMITS = {"/signin": signin.MAX_FORM, "/signout": signin.MAX_FORM, "/api/pair": signin.MAX_PAIR}
 shell.NIWA_URL = os.environ.get("KURA_NIWA_URL", "").rstrip("/")
 shell.KONBINI_URL = api.KONBINI_URL = os.environ.get("KURA_KONBINI_URL", "").rstrip("/")
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
@@ -265,6 +274,30 @@ shell.SITES = state.sites
 shell.COUNTS = lambda: state.index.counts
 
 
+_prefs = None
+_prefs_lock = threading.Lock()
+
+
+def prefs_store():
+    """The preferences file (signin.Prefs at PREFS_DB), opened on first use; OSError or sqlite3.Error when it can't be."""
+    global _prefs
+    with _prefs_lock:
+        if _prefs is None or _prefs.path != PREFS_DB:
+            _prefs = signin.Prefs(PREFS_DB)
+        return _prefs
+
+
+def signin_needed(ctx, path):
+    """The 401 page for a browser without a session when the built-in sign-in is on: a link to /signin that comes
+    back here. vaultkit's plain header, as on /signin itself: nothing about the vaults before anyone is known."""
+    link = "/signin?next=" + quote(signin.safe_next(path), safe="")
+    e = shell.e
+    body = ('%s<main class="msg"><div class="empty"><h2>Sign In</h2><p>Kura needs to know who you are.</p>'
+            '<p><a href="%s">Sign in</a></p></div></main>'
+            % (shell.house.header(shell.ROOM, [], "", shell.house.rooms(), settings=False), e(link)))
+    return shell.house.page(ctx, shell.ROOM, "Sign In", body, manifest=False)
+
+
 def ints(query, key, default, top):
     try:
         return max(0, min(top, int((query.get(key) or [default])[0])))
@@ -337,9 +370,87 @@ class Handler(BaseHTTPRequestHandler):
         if IDENTITY is not None:
             who = self.who()
             status = who.status if not who else 403
+            if status == 401 and IDENTITY.signin and self.is_page():
+                return self.send(401, signin_needed(self.ctx(), self.path), headers=[NO_STORE])
             body = (who.error if not who else "not allowed in kura") + "\n"
             return self.send(status, body, "text/plain", headers=[NO_STORE])
         return self.send(403, "forbidden\n", "text/plain")
+
+    def is_page(self):
+        """A page a browser opens (a 401 there links to /signin), not the API, a feed, a script or a stylesheet."""
+        path = urlsplit(self.path).path
+        return not (path.startswith(("/api/", "/static/")) or path.endswith((".xml", ".js", ".webmanifest")))
+
+    def reply(self, status, headers, body):
+        """A vaultkit.signin answer, (status, [(header, value)], bytes), as it is: its own Set-Cookie headers and no
+        others (a renewed session added to a sign-out would undo it)."""
+        self.send_response(status)
+        for k, v in headers:
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def too_large(self):
+        self.close_connection = True
+        return self.send(413, "request body too large\n", "text/plain", headers=[NO_STORE])
+
+    def do_POST(self):
+        """Kura is read-only: the built-in sign-in, sign-out and Shiori's pairing are the only POSTs, before the gate
+        (they are how a browser or a device gets past it), and only with an identity file. Anything else: 405."""
+        if AUTH == "open" and not host_allowed(self.headers.get("Host")):
+            self.close_connection = True
+            return self.send(403, "forbidden: unknown Host (KURA_ALLOWED_HOSTS)\n", "text/plain")
+        path = unquote(urlsplit(self.path).path)
+        if path not in SIGNIN_LIMITS:
+            self.close_connection = True
+            return self.send(405, "Kura is read-only\n", "text/plain", headers=[("Allow", "GET, HEAD")])
+        if IDENTITY is None:
+            self.close_connection = True
+            return self.send(404, "not found\n", "text/plain")
+        body = signin.read_body(self.headers, self.rfile, SIGNIN_LIMITS[path])
+        if body is None:
+            return self.too_large()
+        client = self.client_address[0] if self.client_address else ""
+        if path == "/signin":
+            return self.reply(*signin.handle_post(IDENTITY, self.headers, body, client, origins=ORIGINS))
+        if path == "/signout":
+            return self.reply(*signin.handle_signout(IDENTITY, self.headers, origins=ORIGINS))
+        return self.reply(*signin.handle_pair(IDENTITY, self.headers, body, client))
+
+    def do_PUT(self):
+        """PUT /api/prefs only (a principal's own preferences, behind the gate); anything else: 405."""
+        if AUTH == "open" and not host_allowed(self.headers.get("Host")):
+            self.close_connection = True
+            return self.send(403, "forbidden: unknown Host (KURA_ALLOWED_HOSTS)\n", "text/plain")
+        path = unquote(urlsplit(self.path).path)
+        if path != "/api/prefs":
+            self.close_connection = True
+            return self.send(405, "Kura is read-only\n", "text/plain", headers=[("Allow", "GET, HEAD")])
+        if IDENTITY is None:
+            self.close_connection = True
+            return self.send(404, "not found\n", "text/plain")
+        if not self.allowed():
+            self.close_connection = True
+            return self.refuse()
+        body = signin.read_body(self.headers, self.rfile, signin.MAX_PREFS)
+        if body is None:
+            return self.too_large()
+        return self.prefs(body)
+
+    def prefs(self, body=b""):
+        """GET/PUT /api/prefs as the resolved principal; a renewed session cookie rides along."""
+        try:
+            store = prefs_store()
+        except (OSError, sqlite3.Error) as err:
+            print("kura: preferences: %s" % err, file=sys.stderr, flush=True)
+            out = (503, list(signin.JSON_HEADERS), b'{"error": "preferences unavailable"}')
+        else:
+            out = signin.handle_prefs(store, self.who().principal, self.command, self.headers, body,
+                                      IDENTITY.secure, origins=ORIGINS)
+        status, headers, data = out
+        return self.reply(status, headers + [("Set-Cookie", c) for c in self.who().cookies], data)
 
     def base(self):
         return PUBLIC_URL or "https://%s" % (self.headers.get("Host") or "localhost")
@@ -399,8 +510,12 @@ class Handler(BaseHTTPRequestHandler):
         path, query = unquote(url.path), parse_qs(url.query)
         if path == "/api/status":
             return self.send_json(200, self.status(self.owner()))
+        if path == "/signin" and IDENTITY is not None:      # the form, before the gate (404 when sign-in is off)
+            return self.reply(*signin.handle_get(IDENTITY, self.headers, url.query))
         if not self.allowed():
             return self.refuse()
+        if path == "/api/prefs" and IDENTITY is not None:
+            return self.prefs()
         self.sites = self.visible()
         self.names = {x.name for x in self.sites}
         shell.view.sites = self.sites               # this request's vault switch and "All Vaults"
@@ -426,7 +541,9 @@ class Handler(BaseHTTPRequestHandler):
                                 % (theme, shell.house.COOKIE_DOMAIN)))
             return self.send(302, "", "text/plain", headers=[("Location", local_path(ref.path))] + cookies)
         if path == "/settings":
-            return self.send(200, shell.settings(ctx, VERSION, footer_status()["text"], vaultkit_version()),
+            who = self.who() if IDENTITY is not None else None
+            account = who.principal.name if who and who.principal.via == "session" else ""
+            return self.send(200, shell.settings(ctx, VERSION, footer_status()["text"], vaultkit_version(), account),
                              headers=[("Cache-Control", "no-cache")])
         if not state.default.ready:
             if path.startswith("/api/") or path == "/feed.xml":
@@ -702,6 +819,10 @@ def main():
     if AUTH == "open":
         print("kura: WARNING: KURA_AUTH=open: no identity check. Anyone who can reach %s:%d can read every note. "
               "Use it only on localhost or a trusted LAN." % (BIND, PORT), flush=True)
+    if IDENTITY is not None and IDENTITY.signin and not PUBLIC_URL:
+        print("kura: KURA_SIGNIN without KURA_PUBLIC_URL: sign-in works only over https (the request's own Host); "
+              "served over plain http, set KURA_PUBLIC_URL=http://<this address> or every sign-in is refused",
+              flush=True)
     threading.Thread(target=state.loop, daemon=True).start()
     server = ThreadingHTTPServer((BIND, PORT), Handler)
     server.daemon_threads = True

@@ -183,7 +183,8 @@ def preview_pane(ctx):
     return (getattr(ctx, "extra", {}) or {}).get("previewPane") != "false"
 
 
-def settings(ctx, version, status_text, vaultkit):
+def settings(ctx, version, status_text, vaultkit, account=""):
+    """`account`: the principal's name when this request came with a sign-in session; it gets a Sign Out button."""
     reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True),
                            house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault"),
                            house.offline_row()],
@@ -192,6 +193,11 @@ def settings(ctx, version, status_text, vaultkit):
                "Obsidian; empty, no link. Offline Copies: the notes you read last (up to 200) stay on this device for "
                "reading without the network, and notes marked offline: true stay for good. Notes under Archive/ are "
                "never kept.")
-    sections = [house.appearance_section(ctx), reading, house.apps_section(ROOM, rooms(), {}),
+    signed_in = None
+    if account:         # a plain form: sign-out is a same-origin POST (vaultkit.signin), and works without JavaScript
+        signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
+                                 '<button type="submit">Sign Out</button></form>' % e(account)],
+                     "Signs this browser out. With one sign-in for every room (MACHIYA_COOKIE_DOMAIN), it signs out of them all.")
+    sections = [house.appearance_section(ctx), reading, signed_in, house.apps_section(ROOM, rooms(), {}),
                 house.about_section(ROOM, version, status_text, vaultkit)]
     return page(ctx, None, "Settings - kura", header(None, "", "Settings") + house.settings_page(sections, ROOM))
