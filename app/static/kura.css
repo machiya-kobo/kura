@@ -1,0 +1,125 @@
+/* Kura's room (蔵, the storehouse): the reader's own layout on top of Machiya's shared machiya.css (vendored in
+   vaultkit/ui/, loaded first: tokens, header, tab bar, tags, chips, lists, empty states, the note body, settings,
+   the footer, the search field). Dense and archival: three columns, tabular numbers, orange (--room) for notes. */
+
+main.msg { max-width: 640px; }
+main.garden { max-width: 900px; }
+
+/* ---- the installed app's back button and the offline / install banners (kura.js) --------------------------- */
+.back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin-left: -8px;
+  border: 0; border-radius: var(--r-m); background: transparent; color: var(--fg); font-size: 26px; line-height: 1;
+  padding: 0 0 3px; cursor: pointer; }
+.banner { padding: 9px 12px; border-radius: var(--r-m); margin: 0 0 var(--sp-3); font-size: var(--fs-s); display: flex;
+  gap: 10px; align-items: center; }
+.banner.offline { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
+.banner.hint { background: var(--hl); color: var(--fg2); }
+.banner > span { flex: 1; }
+.banner button { margin-left: auto; border: 0; background: transparent; color: var(--muted); padding: 2px 6px;
+  font-size: var(--fs-l); cursor: pointer; }
+@media (display-mode: standalone) { .banner.hint { display: none; } }
+
+/* ---- a note: crumbs, heading, meta line, Linked From ------------------------------------------------------- */
+.crumbs { font-size: var(--fs-s); color: var(--muted); margin: 0 0 var(--sp-1); }
+.crumbs a { color: inherit; }
+article.note .nhead h1 { margin: 10px 0 2px; font-size: var(--fs-xxl); line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
+.nmeta { color: var(--muted); margin: 0 0 14px; line-height: 1.9; font-size: var(--fs-s); }
+.nmeta .tag { margin-right: 4px; }
+.nmeta a.obsidian { color: var(--fg2); }
+ul.garden-list { list-style: none; padding: 0; margin: 0 0 var(--sp-2); }
+ul.garden-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+ul.garden-list .ntl { font-weight: 600; }
+ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(--fs-s); }
+.nfolder { font-size: var(--fs-xs); color: var(--muted); margin-left: .4em; }
+.tended { color: var(--muted); font-size: var(--fs-xs); margin-left: 6px; }
+.more { font-size: var(--fs-xs); color: var(--muted); }
+.kcount { font-size: .6em; font-weight: 500; color: var(--muted); vertical-align: middle; margin-left: .3em; }
+.mermaid-diagram { margin: 1.2em 0; overflow-x: auto; text-align: center; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+
+/* ---- the vault switch: the current vault as a chip, a menu of every vault (shell.vault_switch) ------------- */
+.chip.private { --chip: var(--yellow); }                /* a work vault: yellow, so it never looks like a personal note */
+.vaults { position: relative; }
+.vaults > summary { list-style: none; cursor: pointer; padding: 3px 10px; font-size: var(--fs-s); font-weight: 600; }
+.vaults > summary::-webkit-details-marker { display: none; }
+.vaults .menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 200px; padding: var(--sp-2);
+  background: var(--dark); border: 1px solid var(--line2); border-radius: var(--r-m); box-shadow: var(--shadow-2); z-index: 20; }
+.vaults .menu a, .vaults .menu b { display: flex; align-items: center; gap: 10px; padding: 7px var(--sp-2); border-radius: 8px;
+  color: var(--fg); font-size: var(--fs-s); font-weight: 500; }
+.vaults .menu a:hover { background: var(--hl); text-decoration: none; }
+.vaults .menu b { background: var(--hl); }
+.vaults .menu small { color: var(--muted); font-weight: 400; margin-left: auto; }
+.kmeta .chip { margin-right: 4px; }
+p.scope { margin: calc(-1 * var(--sp-2)) 0 var(--sp-3); font-size: var(--fs-s); }
+
+/* ---- the reader: folders | notes | preview (pages.columns) ------------------------------------------------- */
+.kgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; }
+.kpreview, .kside .kfn small { display: none; }
+.kside { order: 0; } .klist { order: 1; } .kpreview { order: 2; }
+.kgrid:not(.khome) .kside { display: none; }          /* phones: the tree only on the home page */
+.kside .sechead { margin-top: var(--sp-3); }
+.ktitle { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
+.klist form.search { margin: var(--sp-1) 0 var(--sp-4); }
+.tagcloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--sp-3); }
+.tagcloud a.tag { font-size: var(--fs-s); padding: 2px 9px; }
+.tagcloud a.tag .kfc { margin-left: 4px; }
+.ktags { margin: 0 0 var(--sp-3); } .ktags summary { cursor: pointer; color: var(--muted); font-size: var(--fs-s); margin-bottom: var(--sp-2); }
+.khd { padding: 14px 0 4px; color: var(--room); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; list-style: none; }
+ul.kfolds, ul.kns { list-style: none; margin: 0 0 var(--sp-2); padding: 0; }
+ul.kfolds ul.kfolds { margin: 0; }
+.kfold { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px calc(8px + var(--d, 0) * 16px);
+  border-radius: 8px; color: var(--fg); }
+.kfold:hover { background: var(--hl); text-decoration: none; }
+.kfold.here { background: var(--hl); }
+.kfold.here b, .kfold.along b { color: var(--room); }
+.kfold > svg { flex: none; width: 18px; height: 18px; color: var(--room); }
+.kfn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.kfn b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kfn small, .kn small, .kmeta { color: var(--muted); font-size: var(--fs-xs); }
+.kfn small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kfc { flex: none; color: var(--muted); font-size: var(--fs-xs); }
+.ksubs { margin: 0 0 10px; }
+.khome .kside .kfn small { display: block; }
+.kn { display: block; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; color: var(--fg); }
+.kn:hover { background: var(--hl); text-decoration: none; }
+.kn b { display: block; font-weight: 600; }
+.kn .kmeta { display: block; margin-top: 1px; }
+.kn small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
+ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
+.kn.sel { background: color-mix(in srgb, var(--room) 14%, transparent); border-radius: 8px; }
+.kn.sel b { color: var(--room); }
+@media (max-width: 1099px) { .kn.sel { background: none; } .kn.sel b { color: inherit; } }  /* no pane to show it in */
+.kphead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.kphead .crumbs { flex: 1; min-width: 0; margin: 0; }
+.kopen { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 8px; font-size: var(--fs-s);
+  font-weight: 600; background: var(--room); color: var(--dark); white-space: nowrap; }
+.kopen:hover { text-decoration: none; filter: brightness(1.08); }
+.kopen svg { width: 14px; height: 14px; }
+.kempty { margin-top: 30vh; }
+.kpreview .nhead h1 { font-size: var(--fs-xxl); margin: 4px 0; }
+.kpreview.loading { opacity: .5; transition: opacity .15s .1s; }
+@media (prefers-reduced-motion: reduce) { .kpreview.loading { transition: none; } }
+/* tablets: folders | notes */
+@media (min-width: 761px) {
+  .kgrid, .kgrid:not(.khome) { grid-template-columns: 220px minmax(0, 1fr); }
+  .kgrid:not(.khome) .kside { display: block; }
+  .kside { position: sticky; top: 64px; align-self: start; max-height: calc(100dvh - 80px); overflow-y: auto;
+    padding-right: 8px; border-right: 1px solid var(--line); }
+  .kside .sechead { margin-top: 0; }
+  .ksubs { display: none; }                          /* the tree already shows them */
+  .kgrid .kside .kfn small, .khome .kside .kfn small { display: none; }
+}
+/* wide screens: folders | notes | preview, each scrolling on its own, the footer's status line under them */
+@media (min-width: 1100px) {
+  body.room-kura:has(.kgrid) { padding-bottom: 0; }
+  body.room-kura:has(.kgrid) .foot { margin-top: 0; padding: 8px 0; }
+  .kgrid, .kgrid:not(.khome) { grid-template-columns: 230px minmax(300px, 380px) minmax(0, 1fr);
+    height: calc(100dvh - 61px - 34px - var(--sat)); gap: 0; }
+  .kside, .klist, .kpreview { position: static; max-height: none; height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  .kside { padding: 0 10px 20px 0; }
+  .klist { padding: 0 18px 20px; border-right: 1px solid var(--line); }
+  .kpreview { display: block; padding: 0 8px 40px 28px; }
+  .kpreview .note { max-width: 780px; }
+  .kgrid.kwide { grid-template-columns: 230px minmax(0, 1fr); }   /* the tag index, or Preview Pane off */
+  .kgrid.kwide .klist { border-right: 0; }
+}

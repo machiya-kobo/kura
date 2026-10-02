@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+# local state and secrets never go in the repo
+/data/
+/repo/
+/secrets/
+.env
+.env.*
+*.sqlite3
+*.sqlite3-*
+*.db
+/.venv/
+/.venv-shots/
+/.pw-browsers/
+/vault/

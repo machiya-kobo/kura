@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""tools/quickstart-test [--only container|native] [--dry-run] [--keep] [--skip-packages] [--ssh HOST] [--source REPO] [--log FILE]
+
+Runs the README's Quickstart exactly as written, from a fresh clone, against the sample vault, so the docs and the test
+cannot drift. It reads the README's runnable blocks: an HTML comment on the line above a fence names the step,
+
+    <!-- quickstart: PATH:STEP -->            then a ```bash fence: a command block, run in document order
+    <!-- quickstart-expect: PATH:STEP -->     then a ```text fence: the output the block before it must show; every
+                                               non-empty line has to appear in the output (as a substring)
+
+Paths: `standalone` (every run), `container` (every container run), `container-docker` or `container-podman` (the engine of the run),
+`container-debian` (installing podman), `native` (every native run), and `native-debian`, `native-openbsd`, `native-freebsd`, `native-netbsd` (the packages of one OS). A container run executes
+`standalone` + `container-debian` (over ssh only) + `container-<engine>` + `container`; a native run executes `standalone` + `native-<this OS>` + `native`. All blocks of a run go
+into ONE POSIX shell session (`sh -eu`: dash, ksh or FreeBSD sh, so the blocks run on the BSDs, where bash is not installed), so variables such as PY and background jobs carry over, like in a terminal.
+A step named `packages` installs system packages (it needs root, doas or sudo): `--skip-packages` leaves it out.
+
+It clones the repository containing this script into /var/tmp/<user>/ (or $TMPDIR), runs there, and removes everything
+afterwards: the clone, the container and its image, and any process the run left behind. The engine is Docker when it
+answers, else Podman. `--dry-run` only lists the steps. Only the standard library and git are needed.
+
+`--ssh HOST` runs a native path (or, with `--only container`, the container path with podman) on another machine (a clean VM that has only sh, tar and sudo or doas): it copies `git
+archive HEAD` of this repository there, runs the blocks in a login shell over ssh, and removes the work directory and any
+server it started. The remote operating system is picked by `uname` (Debian, OpenBSD, FreeBSD or NetBSD). The package
+steps run unless `--skip-packages` is given. No git or Python is needed on the machine.
+
+Exit status 0 means every step ran and every expected output was there.
+"""
+import argparse
+import getpass
+import os
+import platform
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+MARK = re.compile(r"^<!--\s*quickstart(-expect)?:\s*([a-z0-9-]+):([a-z0-9-]+)\s*-->\s*$")
+
+
+def parse(readme):
+    """-> [{"path", "step", "expect", "body", "line"}] in document order: each marker comment and the fence below it."""
+    blocks, lines, i = [], readme.split("\n"), 0
+    while i < len(lines):
+        m = MARK.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        i += 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        if i >= len(lines) or not lines[i].startswith("```"):
+            sys.exit("quickstart-test: README line %d: a quickstart marker must be followed by a fenced block" % i)
+        start, body = i + 1, []
+        i += 1
+        while i < len(lines) and not lines[i].startswith("```"):
+            body.append(lines[i])
+            i += 1
+        i += 1
+        blocks.append({"path": m.group(2), "step": m.group(3), "expect": bool(m.group(1)), "body": "\n".join(body),
+                       "line": start})
+    return blocks
+
+
+def steps_for(blocks, paths, skip_packages=False):
+    """The command blocks of `paths`, in order, each with the expected output of its :expect block."""
+    out = []
+    for b in blocks:
+        if b["path"] not in paths:
+            continue
+        if b["expect"]:
+            prev = out[-1] if out else None
+            if not prev or (prev["path"], prev["step"]) != (b["path"], b["step"]):
+                sys.exit("quickstart-test: README line %d: an :expect block must follow its command block" % b["line"])
+            prev["expect"] = [l.strip() for l in b["body"].split("\n") if l.strip()]
+        elif not (skip_packages and b["step"] == "packages"):
+            out.append(dict(b, expect=[]))
+    return out
+
+
+def this_os():
+    system = platform.system().lower()
+    if system == "linux":
+        try:
+            ident = open("/etc/os-release").read()
+        except OSError:
+            ident = ""
+        m = re.search(r"^ID(?:_LIKE)?=.*\bdebian\b|^ID=\"?debian", ident, re.M) or re.search(r"^ID=(ubuntu|debian)", ident, re.M)
+        return "debian" if m else "linux"
+    return system                      # openbsd, freebsd, netbsd
+
+
+def engine():
+    """The container engine to run as `docker`: docker if it answers, else podman, else None."""
+    for name in ("docker", "podman"):
+        exe = shutil.which(name)
+        if exe and subprocess.run([exe, "info"], capture_output=True).returncode == 0:
+            return name, exe
+    return None, None
+
+
+def show(label, paths, steps):
+    print("== %s: %s" % (label, " + ".join(paths)))
+    for n, s in enumerate(steps, 1):
+        first = s["body"].strip().split("\n")[0][:96]
+        print("  %2d. [%s] %s (README line %d): %s%s" % (n, s["path"], s["step"], s["line"], first,
+                                                          "  -> expects %d line(s)" % len(s["expect"]) if s["expect"] else ""))
+
+
+def run_path(label, paths, args, source, log):
+    if args.dry_run:                         # the README of the working tree; a real run reads the fresh clone's
+        steps = steps_for(parse(open(os.path.join(source, "README.md")).read()), paths, args.skip_packages)
+        show(label, paths, steps)
+        return bool(steps)
+    return execute(label, paths, args, source, log)
+
+
+def execute(label, paths, args, source, log):
+    base = os.environ.get("TMPDIR") or "/var/tmp/%s" % getpass.getuser()
+    os.makedirs(base, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="kura-quickstart-", dir=base)
+    clone = os.path.join(work, "kura")
+    env, group = dict(os.environ), None
+    try:
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", source, clone], check=True)
+        steps = steps_for(parse(open(os.path.join(clone, "README.md")).read()), paths, args.skip_packages)
+        show(label, paths, steps)
+        if not steps:
+            print("   no steps for this run in the cloned README.md")
+            return False
+        if label == "container" and not engine()[0]:
+            print("   no working container engine (docker or podman): cannot run the container path")
+            return False
+        script = ["set -eu", "cd " + clone]
+        for n, s in enumerate(steps):
+            script += ["echo '@@BEGIN %d@@'" % n, s["body"], "echo '@@END %d@@'" % n]
+        script_file = os.path.join(work, "run.sh")
+        open(script_file, "w").write("\n".join(script) + "\n")
+        out_file = os.path.join(work, "out.txt")
+        started = time.time()
+        with open(out_file, "w") as out:
+            proc = subprocess.Popen(["sh", script_file], cwd=clone, env=env, stdout=out, stderr=subprocess.STDOUT,
+                                    start_new_session=True)
+            group = proc.pid
+            rc = proc.wait()
+        text = open(out_file, errors="replace").read()
+        if log:
+            log.write("==== %s (%d s, exit %d)\n%s\n" % (label, time.time() - started, rc, text))
+        return report(steps, text, rc)
+    finally:
+        cleanup(label, work, group, args)
+
+
+def sh_quote(text):
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def remote(host, command, **kw):
+    return subprocess.run(["ssh", "-n", "-o", "BatchMode=yes", host, command], capture_output=True, text=True, **kw)
+
+
+def remote_os(host):
+    r = remote(host, "uname -s; cat /etc/os-release 2>/dev/null")
+    kernel = r.stdout.split("\n", 1)[0].strip().lower()
+    if kernel == "linux":
+        return "debian" if re.search(r"^ID=\"?debian", r.stdout, re.M) else "linux"
+    return kernel
+
+
+def execute_ssh(args, source, log):
+    host, osname = args.ssh, remote_os(args.ssh)
+    container = args.only == "container"
+    paths = ("standalone", "container-" + osname, "container-podman", "container") if container else \
+        ("standalone", "native-" + osname, "native")
+    out = subprocess.run(["git", "-C", source, "show", "HEAD:README.md"], capture_output=True, text=True, check=True).stdout
+    steps = steps_for(parse(out), paths, args.skip_packages)
+    show("%s over ssh to %s (%s)" % ("container" if container else "native", host, osname), paths, steps)
+    if not steps:
+        print("   no steps for %s in README.md" % osname)
+        return False
+    work = remote(host, "mktemp -d /var/tmp/kura-quickstart.XXXXXX").stdout.strip()
+    if not work.startswith("/var/tmp/"):
+        print("   cannot make a work directory on %s" % host)
+        return False
+    local = tempfile.mkdtemp(prefix="kura-quickstart-")
+    try:
+        tar, script_file = os.path.join(local, "kura.tar"), os.path.join(local, "run.sh")
+        subprocess.run(["git", "-C", source, "archive", "--format=tar", "--prefix=kura/", "-o", tar, "HEAD"], check=True)
+        script = ["set -eu", "cd " + work + "/kura"]
+        for n, st in enumerate(steps):
+            script += ["echo '@@BEGIN %d@@'" % n, st["body"], "echo '@@END %d@@'" % n]
+        open(script_file, "w").write("\n".join(script) + "\n")
+        for f, dest in ((tar, work + "/kura.tar"), (script_file, work + "/run.sh")):
+            subprocess.run(["scp", "-q", "-o", "BatchMode=yes", f, "%s:%s" % (host, dest)], check=True)
+        remote(host, "cd %s && tar -xf kura.tar" % sh_quote(work), check=True)
+        started = time.time()
+        r = remote(host, "sh -l %s/run.sh" % sh_quote(work), timeout=3600)
+        text = r.stdout + r.stderr
+        if log:
+            log.write("==== %s over ssh to %s (%d s, exit %d)\n%s\n" % (osname, host, time.time() - started, r.returncode, text))
+        return report(steps, text, r.returncode)
+    finally:
+        if args.only == "container":
+            podman = "podman --cgroup-manager=cgroupfs"
+            remote(host, "%s rm -f kura; %s rmi -f kura; %s volume rm -f kura-data" % (podman, podman, podman))
+        remote(host, "pkill -f %s >/dev/null 2>&1; rm -rf %s" % (sh_quote(work + "/kura/app/kura.py"), sh_quote(work)))
+        shutil.rmtree(local, ignore_errors=True)
+
+
+def report(steps, text, rc):
+    segments = {}
+    for m in re.finditer(r"@@BEGIN (\d+)@@\n(.*?)(?:@@END \1@@|\Z)", text, re.S):
+        segments[int(m.group(1))] = (m.group(2), "@@END %s@@" % m.group(1) in m.group(0))
+    ok = True
+    for n, s in enumerate(steps):
+        output, finished = segments.get(n, ("", False))
+        if not finished:
+            print("   FAIL step %d [%s] %s: it did not finish (exit %d)\n%s" % (n + 1, s["path"], s["step"], rc, indent(output)))
+            return False
+        missing = [e for e in s["expect"] if e not in output]
+        if missing:
+            ok = False
+            print("   FAIL step %d [%s] %s: the output lacks %s\n%s" % (n + 1, s["path"], s["step"], missing, indent(output)))
+        else:
+            print("   ok   step %d [%s] %s%s" % (n + 1, s["path"], s["step"], " (output as expected)" if s["expect"] else ""))
+    return ok
+
+
+def indent(text):
+    return "\n".join("      | " + l for l in text.strip().split("\n")[-25:])
+
+
+def cleanup(label, work, group, args):
+    if group:                                    # background jobs of the run (the native server)
+        try:
+            os.killpg(group, signal.SIGTERM)
+        except OSError:
+            pass
+    if label == "container":
+        name, exe = engine()
+        if exe:
+            subprocess.run([exe, "rm", "-f", "kura"], capture_output=True)
+            subprocess.run([exe, "rmi", "-f", "kura"], capture_output=True)
+            subprocess.run([exe, "volume", "rm", "-f", "kura-data"], capture_output=True)
+    if args.keep:
+        print("   left in %s" % work)
+    else:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Run the README's Quickstart from a fresh clone.")
+    ap.add_argument("--only", choices=("container", "native"), help="run one path (default: both that can run here)")
+    ap.add_argument("--dry-run", action="store_true", help="list the steps and run nothing")
+    ap.add_argument("--keep", action="store_true", help="keep the work directory")
+    ap.add_argument("--skip-packages", action="store_true", help="leave out the steps named `packages` (they need root)")
+    ap.add_argument("--ssh", metavar="HOST", help="run the native path on this machine over ssh (a clean VM)")
+    ap.add_argument("--source", default=os.path.dirname(HERE), help="the repository to clone (default: this one)")
+    ap.add_argument("--log", help="append the full output of every run to this file")
+    args = ap.parse_args()
+    log = open(args.log, "a") if args.log else None
+    if args.ssh:
+        if args.only == "native":
+            args.only = None
+        ok = execute_ssh(args, args.source, log) if not args.dry_run else True
+        print("quickstart-test: %s" % ("all steps ok" if ok else "FAILED"))
+        sys.exit(0 if ok else 1)
+    runs = []
+    if args.only in (None, "container"):
+        runs.append(("container", ("standalone", "container-" + (engine()[0] or "podman"), "container")))
+    if args.only in (None, "native"):
+        osname = this_os()
+        runs.append(("native", ("standalone", "native-" + osname, "native")))
+    results = [run_path(label, paths, args, args.source, log) for label, paths in runs]
+    print("quickstart-test: %s" % ("all steps ok" if all(results) else "FAILED"))
+    sys.exit(0 if all(results) else 1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""tools/screenshots [--out docs/screenshots] [--keep]
+
+Captures the README's screenshots of Kura from the sample vault (sample-vault/, invented notes only): the reader at
+desktop size (1280x800) in the light and the dark theme, and a note on a phone (390x844) in both. It starts Kura on a free
+localhost port against a throwaway copy of the vault, drives headless Chromium, optimises each PNG (at most 250 KB) and
+removes everything afterwards.
+
+Setup (once, in the repository; both folders are git-ignored):
+
+    python3 -m venv .venv-shots
+    .venv-shots/bin/pip install playwright pillow markdown pyyaml
+    PLAYWRIGHT_BROWSERS_PATH="$PWD/.pw-browsers" .venv-shots/bin/playwright install chromium
+    PLAYWRIGHT_BROWSERS_PATH="$PWD/.pw-browsers" .venv-shots/bin/python tools/screenshots
+
+The interpreter that runs this script also runs Kura, so it needs `markdown` and `pyyaml` too. `optipng` is used when it
+is installed. Output files: docs/screenshots/kura-<what>-<light|dark>.png.
+"""
+import argparse
+import getpass
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+MAX_BYTES = 250 * 1024
+DESKTOP, PHONE = {"width": 1280, "height": 800}, {"width": 390, "height": 844}
+THEMES = (("light", "day"), ("dark", "night"))           # file name, Kura's theme cookie
+# (name, path, viewport, wait for this selector)
+SHOTS = (("home", "/?p=Notes/Bamboo%20frames", DESKTOP, "article.note, .kpreview"),
+         ("note", "/n/Notes/Bamboo%20frames", DESKTOP, "article.note"),
+         ("search", "/search?q=bamboo", DESKTOP, "main"),
+         ("note-phone", "/n/Notes/Bamboo%20frames", PHONE, "article.note"))
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def make_vault(dest):
+    shutil.copytree(os.path.join(ROOT, "sample-vault", "personal"), dest)
+    env = dict(os.environ)
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.name=Demo", "-c", "user.email=demo@example.com", "-c", "commit.gpgsign=false",
+                  "commit", "-q", "-m", "sample vault"]):
+        subprocess.run(["git", "-C", dest, *args], check=True, env=env)
+
+
+def wait_ready(base, proc):
+    for _ in range(90):
+        if proc.poll() is not None:
+            sys.exit("screenshots: Kura exited early (is markdown/pyyaml installed for this interpreter?)")
+        try:
+            if b'"ready": true' in urllib.request.urlopen(base + "/api/status", timeout=2).read():
+                return
+        except OSError:
+            pass
+        time.sleep(1)
+    sys.exit("screenshots: Kura did not become ready")
+
+
+def optimise(path):
+    """Quantise to a 256-colour palette (these pages are flat colours and text), then optipng if there is one."""
+    from PIL import Image
+    img = Image.open(path).convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    img.save(path, optimize=True)
+    if shutil.which("optipng"):
+        subprocess.run(["optipng", "-quiet", "-o2", path], check=False)
+    size = os.path.getsize(path)
+    if size > MAX_BYTES:
+        sys.exit("screenshots: %s is %d KB, over the %d KB limit" % (path, size // 1024, MAX_BYTES // 1024))
+    return size
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Capture Kura's README screenshots from the sample vault.")
+    ap.add_argument("--out", default=os.path.join(ROOT, "docs", "screenshots"))
+    ap.add_argument("--keep", action="store_true", help="do not remove the temporary directory")
+    args = ap.parse_args()
+    from playwright.sync_api import sync_playwright
+    base_dir = os.environ.get("TMPDIR") or "/var/tmp/%s" % getpass.getuser()
+    os.makedirs(base_dir, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="kura-shots-", dir=base_dir)
+    os.makedirs(args.out, exist_ok=True)
+    proc = None
+    try:
+        vault = os.path.join(work, "vault")
+        make_vault(vault)
+        port = free_port()
+        base = "http://127.0.0.1:%d" % port
+        env = dict(os.environ, KURA_AUTH="open", KURA_BIND="127.0.0.1", KURA_PORT=str(port), KURA_REPO_DIR=vault,
+                   KURA_DB=os.path.join(work, "kura.sqlite3"), KURA_PUBLIC_URL=base, KURA_POLL="3600", TZ="UTC")
+        for k in [k for k in env if k.startswith(("KURA_VAULTS", "KURA_REPO_URL", "MACHIYA_"))]:
+            del env[k]
+        proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "app", "kura.py")], env=env, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        wait_ready(base, proc)
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            for label, theme in THEMES:
+                for name, path, viewport, selector in SHOTS:
+                    ctx = browser.new_context(viewport=viewport, device_scale_factor=1,
+                                              color_scheme="light" if theme == "day" else "dark",
+                                              reduced_motion="reduce", locale="en-US", timezone_id="UTC")
+                    ctx.add_cookies([{"name": "theme", "value": theme, "url": base}])
+                    page = ctx.new_page()
+                    page.goto(base + path, wait_until="networkidle")
+                    page.wait_for_selector(selector, timeout=15000)
+                    page.wait_for_timeout(600)
+                    out = os.path.join(args.out, "kura-%s-%s.png" % (name, label))
+                    page.screenshot(path=out)
+                    ctx.close()
+                    print("%-40s %4d KB" % (os.path.relpath(out, ROOT), optimise(out) // 1024))
+            browser.close()
+    finally:
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        if args.keep:
+            print("left in", work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()

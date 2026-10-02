@@ -1,0 +1,9 @@
+# gitleaks config: the only finding in this repository is a vendored, minified upstream file, listed here on purpose.
+title = "kura"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "vendored upstream, minified (Mermaid): its generic-api-key match is not a secret"
+paths = ['''app/static/mermaid\.min\.js''']
