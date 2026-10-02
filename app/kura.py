@@ -112,6 +112,13 @@ def changed_times(run, subdirs):
     return times
 
 
+def local_path(path):
+    """A redirect target that stays on this host: a path starting with one / (not //, /\\ or a control character, which
+    browsers read as another host). Anything else is /."""
+    ok = path.startswith("/") and path[1:2] not in ("/", "\\") and not any(ord(c) < 32 or c == "\x7f" for c in path)
+    return path if ok else "/"
+
+
 def footer_status(site=None):
     """The footer's status line (shell.footer) and About's Vault row: "synced abc1234 3 min ago · 42 notes". Another
     vault's line starts with its title."""
@@ -333,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
             if shell.house.COOKIE_DOMAIN:     # the shared cookie wins over the room's own (shell.prefs)
                 cookies.append(("Set-Cookie", "machiya_theme=%s; domain=%s; path=/; max-age=31536000; samesite=lax"
                                 % (theme, shell.house.COOKIE_DOMAIN)))
-            return self.send(302, "", "text/plain", headers=[("Location", ref.path or "/")] + cookies)
+            return self.send(302, "", "text/plain", headers=[("Location", local_path(ref.path))] + cookies)
         if path == "/settings":
             return self.send(200, shell.settings(ctx, VERSION, footer_status()["text"], vaultkit_version()),
                              headers=[("Cache-Control", "no-cache")])
@@ -353,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
             if site is None:
                 return self.send(404, pages.missing(ctx, state.default, path), headers=[NO_STORE])
             if site.default:                            # /v/<default>/n/X is /n/X
-                return self.send(301, "", "text/plain", headers=[("Location", rest + ("?" + url.query if url.query else ""))])
+                return self.send(301, "", "text/plain", headers=[("Location", local_path(rest) + ("?" + url.query if url.query else ""))])
             if not site.ready:
                 return self.send(503, shell.message(ctx, "Starting", "This vault is still being read. Try again in a "
                                                     "minute.", site), headers=[("Retry-After", "30"), NO_STORE])

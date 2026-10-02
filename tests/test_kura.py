@@ -94,11 +94,12 @@ def get(path, user="owner@test"):
         return e.code, e.read().decode()
 
 
-def fetch(path, cookie=""):
-    """(status, headers, body) with the owner's login and an optional Cookie header."""
+def fetch(path, cookie="", headers=None):
+    """(status, headers, body) with the owner's login and an optional Cookie header (and any other `headers`)."""
     h = {"Tailscale-User-Login": "owner@test"}
     if cookie:
         h["Cookie"] = cookie
+    h.update(headers or {})
     req = urllib.request.Request(BASE + path, headers=h)
     opener = urllib.request.build_opener(NoRedirect)
     try:
@@ -305,6 +306,20 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(kura.auth_mode(" Open "), "open")
         with self.assertRaises(SystemExit):
             kura.auth_mode("opne")                                    # a typo never opens the notes
+
+    def test_redirects_stay_on_this_host(self):
+        for good in ("/", "/n/X", "/v/work/n/A%20B", "/search"):
+            self.assertEqual(kura.local_path(good), good)
+        for bad in ("", "//evil.test", "/\\evil.test", "evil.test", "https://evil.test/", "/\tevil", "/x\ny", "/x\x7f"):
+            self.assertEqual(kura.local_path(bad), "/", repr(bad))
+        st, h, _ = fetch("/v/personal//evil.test/n/X")
+        self.assertEqual((st, h["Location"]), (301, "/"))                 # was //evil.test/n/X: off-site
+        st, h, _ = fetch("/v/personal/n/X")
+        self.assertEqual((st, h["Location"]), (301, "/n/X"))
+        for ref, where in (("https://kura.test//evil.test/x", "/"), ("https://kura.test/\\evil.test", "/"),
+                           ("https://kura.test/n/X", "/n/X"), ("", "/")):
+            st, h, _ = fetch("/theme?set=day", headers={"Referer": ref} if ref else {})
+            self.assertEqual((st, h["Location"]), (302, where), ref)
 
     def test_public_url_is_an_origin(self):
         # Clients tell a work vault's note by /v/ at the start of its path: a base with a path would hide it.

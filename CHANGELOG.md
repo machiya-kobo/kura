@@ -16,6 +16,8 @@ show the running version.
   Under a path (`https://host/kura`), a work vault's note had an address clients couldn't tell from any other page
   (they look for `/v/` at the start of the path), so it could reach Hister or AI; Kura's own pages already needed the
   root.
+- Redirects stay on Kura's host: `/v/<default>//other.host/…` and `/theme` with a Referer path such as `//other.host`
+  answered with a redirect to another site; they now fall back to `/`.
 
 ## 0.4.3
 
