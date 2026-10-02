@@ -56,7 +56,29 @@ AUTH = auth_mode(os.environ.get("KURA_AUTH"))
 # The address Kura listens on. A native install behind `tailscale serve` binds 127.0.0.1: on a public bind the
 # Tailscale-User-Login header could be sent by anyone who reaches the port.
 BIND = os.environ.get("KURA_BIND", "0.0.0.0").strip() or "0.0.0.0"
-PUBLIC_URL = os.environ.get("KURA_PUBLIC_URL", "").rstrip("/")
+
+
+def public_url(value):
+    """KURA_PUBLIC_URL: an origin only (http(s), a host, maybe a port), with no path. Every note's url is <origin>/n/…
+    or <origin>/v/<vault>/n/…, and clients tell a work vault's note by /v/ at the start of the path; under a path
+    (https://host/kura) they couldn't, and the reader's own links start at the root anyway. Anything else refuses to
+    start."""
+    value = (value or "").strip().rstrip("/")
+    if not value:
+        return ""
+    u = urlsplit(value)
+    try:
+        u.port                                                     # a malformed port raises
+        ok = u.scheme in ("http", "https") and bool(u.hostname) and not (u.path or u.query or u.fragment)
+    except ValueError:
+        ok = False
+    if not ok or "@" in u.netloc:
+        raise SystemExit("kura: KURA_PUBLIC_URL must be an origin with no path, like https://kura.example, not %r"
+                         % value)
+    return value
+
+
+PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
 api.PUBLIC_URL = PUBLIC_URL
 api.SHIORI_LINKS = os.environ.get("KURA_SHIORI_LINKS", "").strip().lower() in ("1", "true", "yes", "on")
 HISTER_URL = os.environ.get("KURA_HISTER_URL", "").rstrip("/")         # set: push every note into Hister

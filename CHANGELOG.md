@@ -4,6 +4,13 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## Unreleased
+
+- `KURA_PUBLIC_URL` must be an origin (`https://kura.example`, maybe with a port) and Kura refuses to start otherwise.
+  Under a path (`https://host/kura`), a work vault's note had an address clients couldn't tell from any other page
+  (they look for `/v/` at the start of the path), so it could reach Hister or AI; Kura's own pages already needed the
+  root.
+
 ## 0.4.3
 
 - An Obsidian alias in a table cell, `[[Note\|alias]]` (the pipe is escaped there), links to the note and counts as a

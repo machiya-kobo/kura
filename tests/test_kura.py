@@ -298,6 +298,16 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(kura.auth_mode(" Open "), "open")
         with self.assertRaises(SystemExit):
             kura.auth_mode("opne")                                    # a typo never opens the notes
+
+    def test_public_url_is_an_origin(self):
+        # Clients tell a work vault's note by /v/ at the start of its path: a base with a path would hide it.
+        self.assertEqual(kura.public_url(None), "")
+        self.assertEqual(kura.public_url(" https://kura.test/ "), "https://kura.test")
+        self.assertEqual(kura.public_url("http://kura.test:8080"), "http://kura.test:8080")
+        for bad in ("https://host.test/kura", "https://host.test/kura/", "https://host.test/?x=1", "https://host.test/#n",
+                    "kura.test", "ftp://kura.test", "https://user@kura.test", "https://kura.test:port", "https://"):
+            with self.assertRaises(SystemExit, msg=bad):
+                kura.public_url(bad)
         self.assertEqual(kura.BIND, "0.0.0.0")
         self.assertEqual(json.loads(get("/api/status", user=None)[1])["auth"], "tailscale")
 
