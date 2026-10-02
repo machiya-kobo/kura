@@ -306,6 +306,8 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(kura.auth_mode(" Open "), "open")
         with self.assertRaises(SystemExit):
             kura.auth_mode("opne")                                    # a typo never opens the notes
+        self.assertEqual(kura.BIND, "0.0.0.0")
+        self.assertEqual(json.loads(get("/api/status", user=None)[1])["auth"], "tailscale")
 
     def test_redirects_stay_on_this_host(self):
         for good in ("/", "/n/X", "/v/work/n/A%20B", "/search"):
@@ -330,8 +332,6 @@ class AuthTest(unittest.TestCase):
                     "kura.test", "ftp://kura.test", "https://user@kura.test", "https://kura.test:port", "https://"):
             with self.assertRaises(SystemExit, msg=bad):
                 kura.public_url(bad)
-        self.assertEqual(kura.BIND, "0.0.0.0")
-        self.assertEqual(json.loads(get("/api/status", user=None)[1])["auth"], "tailscale")
 
     def test_open_mode_skips_the_allow_list_only(self):
         kura.AUTH = "open"
