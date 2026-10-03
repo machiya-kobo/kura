@@ -121,12 +121,15 @@ api.PUBLIC_URL = PUBLIC_URL
 api.SHIORI_LINKS = os.environ.get("KURA_SHIORI_LINKS", "").strip().lower() in ("1", "true", "yes", "on")
 HISTER_URL = os.environ.get("KURA_HISTER_URL", "").rstrip("/")         # set: push every note into Hister
 DB = os.environ.get("KURA_DB", "/data/kura.sqlite3")
-# Per-user preferences (/api/prefs, with an identity file): their own file next to KURA_DB, so clearing what was pushed
+# Per-user preferences (/api/prefs): their own file next to KURA_DB, so clearing what was pushed
 # into Hister never clears anyone's preferences. Made on first use.
 PREFS_DB = os.path.join(os.path.dirname(os.path.abspath(DB)), "prefs.sqlite3")
 # The origins a same-origin check accepts for sign-in, sign-out and a prefs PUT made with a cookie: KURA_PUBLIC_URL.
 # Without it the request's own Host counts, over https only; over plain http sign-in then always refuses (signin.py).
 ORIGINS = (PUBLIC_URL,) if PUBLIC_URL else ()
+# Without an identity file, preferences belong to the one person the old gate admits (identity.ambient): a prefs PUT is
+# same-origin with KURA_PUBLIC_URL, else with the request's Host over https (Tailscale serve), or http in open mode.
+SECURE = PUBLIC_URL.startswith("https://") if PUBLIC_URL else AUTH != "open"
 SHARED_UI = ("/static/machiya.css", "/static/machiya.js", "/static/machiya-sw.js")   # vaultkit's, before the gate
 SIGNIN_LIMITS = {"/signin": signin.MAX_FORM, "/signout": signin.MAX_FORM, "/api/pair": signin.MAX_PAIR}
 shell.NIWA_URL = os.environ.get("KURA_NIWA_URL", "").rstrip("/")
@@ -174,7 +177,8 @@ def footer_status(site=None):
         return {"text": label + "starting: cloning the vault", "state": "down"}
     age = int(time.time()) - (site.synced_at or 0)
     when = "just now" if age < 60 else "%d min ago" % (age // 60) if age < 3600 else "%d h ago" % (age // 3600)
-    text = "%ssynced %s %s · %d notes" % (label, site.head[:7], when, state.index.counts.get(site.name, 0))
+    count = state.index.counts.get(site.name, 0)
+    text = "%ssynced %s %s · %d %s" % (label, site.head[:7], when, count, "note" if count == 1 else "notes")
     if site.error:
         return {"text": text + " · last sync failed", "state": "down"}
     return {"text": text, "state": "stale" if age > STALE else "ok"}
@@ -288,17 +292,6 @@ def prefs_store():
         return _prefs
 
 
-def signin_needed(ctx, path):
-    """The 401 page for a browser without a session when the built-in sign-in is on: a link to /signin that comes
-    back here. vaultkit's plain header, as on /signin itself: nothing about the vaults before anyone is known."""
-    link = "/signin?next=" + quote(signin.safe_next(path), safe="")
-    e = shell.e
-    body = ('%s<main class="msg"><div class="empty"><h2>Sign In</h2><p>Kura needs to know who you are.</p>'
-            '<p><a href="%s">Sign in</a></p></div></main>'
-            % (shell.house.header(shell.ROOM, [], "", shell.house.rooms(), settings=False), e(link)))
-    return shell.house.page(ctx, shell.ROOM, "Sign In", body, manifest=False)
-
-
 def ints(query, key, default, top):
     try:
         return max(0, min(top, int((query.get(key) or [default])[0])))
@@ -355,6 +348,14 @@ class Handler(BaseHTTPRequestHandler):
             return bool(who) and who.principal.owner
         return self.allowed()
 
+    def principal(self):
+        """Whose preferences these are: the identity file's principal, else (after the old gate) identity.ambient's
+        one owner for Tailscale or open mode; None for nobody."""
+        if IDENTITY is not None:
+            who = self.who()
+            return who.principal if who else None
+        return identity.ambient(AUTH, self.headers) if self.allowed() else None
+
     def visible(self):
         """The vaults this request may read: every vault without an identity file, else the principal's grant
         (vaultkit.identity Principal.vaults: "*", or vault names plus "default" and "shared"). A private vault is
@@ -372,7 +373,7 @@ class Handler(BaseHTTPRequestHandler):
             who = self.who()
             status = who.status if not who else 403
             if status == 401 and IDENTITY.signin and self.is_page():
-                return self.send(401, signin_needed(self.ctx(), self.path), headers=[NO_STORE])
+                return self.send(401, signin.needed(shell.ROOM, self.path, self.ctx()), headers=[NO_STORE])
             body = (who.error if not who else "not allowed in kura") + "\n"
             return self.send(status, body, "text/plain", headers=[NO_STORE])
         return self.send(403, "forbidden\n", "text/plain")
@@ -388,6 +389,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         for k, v in headers:
             self.send_header(k, v)
+        if dict(headers).get("Content-Type", "").startswith("text/html"):
+            self.send_header("Content-Security-Policy", shell.house.CSP)    # beside signin's own frame-ancestors 'none'
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD":
@@ -429,9 +432,6 @@ class Handler(BaseHTTPRequestHandler):
         if path != "/api/prefs":
             self.close_connection = True
             return self.send(405, "Kura is read-only\n", "text/plain", headers=[("Allow", "GET, HEAD")])
-        if IDENTITY is None:
-            self.close_connection = True
-            return self.send(404, "not found\n", "text/plain")
         if not self.allowed():
             self.close_connection = True
             return self.refuse()
@@ -448,10 +448,24 @@ class Handler(BaseHTTPRequestHandler):
             print("kura: preferences: %s" % err, file=sys.stderr, flush=True)
             out = (503, list(signin.JSON_HEADERS), b'{"error": "preferences unavailable"}')
         else:
-            out = signin.handle_prefs(store, self.who().principal, self.command, self.headers, body,
-                                      IDENTITY.secure, origins=ORIGINS)
+            out = signin.handle_prefs(store, self.principal(), self.command, self.headers, body,
+                                      IDENTITY.secure if IDENTITY is not None else SECURE, origins=self.origins())
         status, headers, data = out
-        return self.reply(status, headers + [("Set-Cookie", c) for c in self.who().cookies], data)
+        cookies = self.who().cookies if IDENTITY is not None else ()
+        return self.reply(status, headers + [("Set-Cookie", c) for c in cookies], data)
+
+    def origins(self):
+        """Where a cookie-borne prefs PUT may come from: KURA_PUBLIC_URL; else, in open mode with no identity file, this
+        request's own Host, which host_allowed() already checked (an IP, localhost or a listed name, never a name a
+        stranger's page pointed here), so a prefs PUT works over plain http on localhost. Plus Shiori's address in
+        MACHIYA_ROOMS: the hosted Shiori reaches Kura's /api/prefs at /kura/ on its own origin (sign-in and sign-out
+        never take this list: they stay Kura's own)."""
+        own = ORIGINS
+        if not own and IDENTITY is None and AUTH == "open":
+            host = (self.headers.get("Host") or "").strip().lower()
+            own = ("http://" + host, "https://" + host) if host_allowed(host) else ()
+        shiori = shell.house.rooms().get("shiori", "")
+        return tuple(own) + ((shiori,) if shiori.startswith(("https://", "http://")) and own else ())
 
     def base(self):
         return PUBLIC_URL or "https://%s" % (self.headers.get("Host") or "localhost")
@@ -468,6 +482,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         for k, v in headers:
             self.send_header(k, v)
+        if ctype.startswith("text/html"):
+            for k, v in shell.house.security_headers():    # a note's HTML is cleaned; this is the second wall
+                self.send_header(k, v)
         for c in (self._who.cookies if getattr(self, "_who", None) is not None else ()):
             self.send_header("Set-Cookie", c)          # a renewed session, or a bad one cleared
         self.end_headers()
@@ -517,8 +534,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.static(path[8:], query)          # the sign-in page's stylesheet and icons: vendored, no notes
         if not self.allowed():
             return self.refuse()
-        if path == "/api/prefs" and IDENTITY is not None:
+        if path == "/api/prefs":
             return self.prefs()
+        p = self.principal()
+        shell.view.prefs_url = "/api/prefs" if p is not None else ""
+        shell.view.who = p.name if IDENTITY is not None and p is not None else ""
         self.sites = self.visible()
         self.names = {x.name for x in self.sites}
         shell.view.sites = self.sites               # this request's vault switch and "All Vaults"
@@ -529,8 +549,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sw.js":
             return self.send(200, shell.service_worker(), "text/javascript", headers=[("Cache-Control", "no-cache")])
         if path == "/offline":
-            return self.send(200, shell.message(ctx, "Offline", "This page needs the network. Check your network or "
-                                                "VPN. Notes you have read before still open."))
+            return self.send(200, shell.offline(ctx))
         if path.startswith("/static/"):
             return self.static(path[8:], query)
         if path == "/theme":            # the no-JavaScript fallback for /settings' Theme
@@ -568,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
             if site is None:
                 return self.send(404, pages.missing(ctx, state.default, path), headers=[NO_STORE])
             if site.default:                            # /v/<default>/n/X is /n/X
-                return self.send(301, "", "text/plain", headers=[("Location", local_path(rest) + ("?" + url.query if url.query else ""))])
+                return self.send(301, "", "text/plain", headers=[("Location", local_path(quote(rest, safe="/")) + ("?" + url.query if url.query else ""))])
             if not site.ready:
                 return self.send(503, shell.message(ctx, "Starting", "This vault is still being read. Try again in a "
                                                     "minute.", site), headers=[("Retry-After", "30"), NO_STORE])
@@ -787,7 +806,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def feed(self, query, g=None):
         """RSS of one vault: /feed.xml the default, /v/<name>/feed.xml a shared one. No vault parameter, and never a
-        private vault, so a feed or an OPML export can't carry a work note."""
+        private vault, so a feed or an OPML export can't carry a work note. Notes under Archive/ stay out too."""
         g, base = g or state.default, self.base()
         if g.private:
             raise ValueError("no feed for a private vault")
@@ -801,7 +820,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             _, found = state.index.recent(50, 0, [g.name])
             rels = [r for _, r in found]
-        notes = [(g.notes[r], api.changed(g, g.notes[r])) for r in rels if r in g.notes]
+        notes = [(g.notes[r], api.changed(g, g.notes[r])) for r in rels if r in g.notes and not pages.never_stored(r)]
         title = ("Kura" if g.default else "Kura · " + g.title) + (
             (": " + " ".join(x for x in (q, tag and "#" + tag, folder) if x)) if (q or tag or folder) else "")
         self.send(200, api.rss(base, title, notes, g.prefix), "application/rss+xml",
@@ -812,9 +831,12 @@ def main():
     drift = vk_verify.check()
     for p in drift:
         print("kura: vaultkit drift: %s" % p, flush=True)
-    print("kura %s (vaultkit %s): repo %s, vaults %s, poll %ds, users %s, push %s%s" % (
-        VERSION, vaultkit_version(), safe_url(REPO_URL) or REPO_DIR + " (as is)",
+    repo = "" if os.environ.get("KURA_VAULTS", "").strip() else \
+        "repo %s, " % (safe_url(REPO_URL) or REPO_DIR + " (as is)")      # KURA_VAULTS names each vault's own source
+    print("kura %s (vaultkit %s): %svaults %s, poll %ds, users %s, push %s%s" % (
+        VERSION, vaultkit_version(), repo,
         ", ".join("%s%s" % (x.name, " (default)" if x.default else "") for x in state.sites), POLL,
+        "from %s" % IDENTITY.path if IDENTITY is not None else
         "anyone (KURA_AUTH=open)" if AUTH == "open" else ",".join(sorted(USERS)) or "NOBODY (set KURA_USERS)",
         ("to %s" % HISTER_URL) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
         (", settings from %s" % ENV_FILE) if ENV_FILE else ""), flush=True)

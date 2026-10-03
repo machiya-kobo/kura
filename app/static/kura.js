@@ -151,10 +151,11 @@ mermaidDiagrams();
     const a = ev.target.closest(".klist a.kn, .kpreview .nbody a[href*='/n/'], .kpreview .gsec a[href*='/n/']");
     if (!a || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
     if (getComputedStyle(pane).display === "none") return;            // tablets and phones: open normally
-    ev.preventDefault();
-    const href = a.getAttribute("href"), my = ++seq;
+    const href = a.getAttribute("href");
     const m = href.match(/^((?:\/v\/[a-z0-9-]+)?)\/n\/(.*)$/);      // "/n/<slug>" or "/v/<vault>/n/<slug>"
-    if (!m) return;                                                  // not a note link: open it normally
+    if (!m) return;                                                  // not a note link (https://x/n/y): open it normally
+    ev.preventDefault();
+    const my = ++seq;
     select(href);
     pane.classList.add("loading");
     try {

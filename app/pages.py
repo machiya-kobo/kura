@@ -73,10 +73,8 @@ def recent_notes(g, limit):
 
 def missing(ctx, g, what):
     """Not found, with the header and tab bar (an installed app has no back button to escape a bare page)."""
-    return npage(ctx, g, "not found - kura", top(ctx, g, "") +
-                 '<main class="garden notes"><div class="empty"><h2>Not Found</h2><p>Kura has nothing at <code>%s</code>. '
-                 'Try <a href="%s/search">Search</a>, or go back <a href="%s/">Home</a>.</p></div></main>'
-                 % (e(what), g.prefix, g.prefix))
+    return npage(ctx, g, "Not Found", top(ctx, g, "") + shell.house.message(
+        "Not Found", "Kura has nothing at %s." % what, [(g.prefix + "/search", "Search"), (g.prefix + "/", "Home")]))
 
 
 def child_folders(g, notes, prefix):
@@ -157,7 +155,7 @@ def tags_index(ctx, g):
         % (('<a href="%s/t/%s">%s</a>' % (g.prefix, quote(k), e(k))) if k else "Other",
            "".join(tag_link(g, t, counts[t]) for t in sorted(groups[k])))
         for k in order))
-    return columns(ctx, g, "tags - kura", "tags", None, head, lambda n: (), [], "", wide=True)
+    return columns(ctx, g, "Tags", "tags", None, head, lambda n: (), [], "", wide=True)
 
 
 def tag(ctx, g, t, sel=""):
@@ -181,7 +179,7 @@ def tag(ctx, g, t, sel=""):
         cloud = '<details class="ktags"><summary>%d Nested Tags</summary>%s</details>' % (len(children), cloud)
     head = ('<p class="crumbs">%s</p><h2 class="ktitle">#%s <span class="kcount">%d</span></h2>%s'
             % (" / ".join(parts), e(t), len(listed), cloud if children else ""))
-    return columns(ctx, g, "#" + t + " - kura", "tags", None, head,
+    return columns(ctx, g, "#" + t, "tags", None, head,
                    lambda n: (note_row(g, x, n) for x in listed), listed, sel)
 
 
@@ -267,7 +265,7 @@ def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra=""
 
 def home(ctx, g, sel=""):
     listed = recent_notes(g, 40)
-    return columns(ctx, g, "kura" if g.default else g.title, "kura", None,
+    return columns(ctx, g, "", "kura", None,
                    '<h3 class="sechead">Recently Changed</h3>', lambda n: (note_row(g, x, n) for x in listed), listed, sel,
                    '<p class="more"><a href="%s/recent">Everything Changed Recently &rsaquo;</a></p>' % g.prefix)
 
@@ -288,7 +286,7 @@ def folder(ctx, g, path, sel=""):
     head = ('<p class="crumbs">%s</p><h2 class="ktitle">%s <span class="kcount">%d</span></h2>%s'
             % (crumbs(g, prefix + "x"), e(title), len(notes),
                ('<ul class="kfolds ksubs">%s</ul>' % subs) if subs else ""))
-    return columns(ctx, g, title + " - kura", "", path, head,
+    return columns(ctx, g, title, "", path, head,
                    lambda n: (note_row(g, x, n, False) for x in direct), direct, sel)
 
 
@@ -297,12 +295,12 @@ def note(ctx, g, n):
     main = ('<main class="garden notes"><article class="note is-note" data-path="%s"%s><p class="crumbs">%s</p>'
             '<header class="nhead">%s<p class="nmeta">%s</p></header><div class="nbody">%s</div></article>%s</main>'
             % (e(n.rel), obsidian_attr(g), crumbs(g, n.rel), heading, meta, body, linked))
-    return npage(ctx, g, n.title + " - kura", top(ctx, g, "") + main, head=shell.OFFLINE_PIN if pinned(g, n) else "")
+    return npage(ctx, g, n.title, top(ctx, g, "") + main, head=shell.OFFLINE_PIN if pinned(g, n) else "")
 
 
 def recent(ctx, g, sel=""):
     listed = recent_notes(g, 150)
-    return columns(ctx, g, "recent - kura", "recent", None, '<h3 class="sechead">Recently Changed</h3>',
+    return columns(ctx, g, "Recent", "recent", None, '<h3 class="sechead">Recently Changed</h3>',
                    lambda n: (note_row(g, x, n) for x in listed), listed, sel)
 
 
@@ -321,7 +319,7 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
             ('<a href="%s?q=%s&amp;vaults=all">All Vaults</a>' % (action, quote(q)))
         box += '<p class="muted scope">Searching <b>%s</b> &middot; %s</p>' % ("All Vaults" if everywhere else e(g.title), other)
     if not q:
-        return columns(ctx, g, "search - kura", "search", None,
+        return columns(ctx, g, "Search", "search", None,
                        box + '<p class="muted">Titles and the full text of every note. <code>"a phrase"</code>, '
                        '<code>-word</code>, <code>word*</code>, <code>title:</code>, <code>tag:</code>, '
                        '<code>folder:</code> and <code>vault:</code> work too.</p>',
@@ -355,5 +353,5 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
         if not text_hits:
             out.append('<li class="muted">%s</li>' % e(error or "Nothing else in the note text."))
         return out
-    return columns(ctx, g, q + " - kura", "search", None, box, rows, mine, sel, shell.house.handoff(q, shell.rooms()),
+    return columns(ctx, g, q, "search", None, box, rows, mine, sel, shell.house.handoff(q, shell.rooms()),
                    preview_of=first)

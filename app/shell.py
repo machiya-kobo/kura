@@ -22,7 +22,8 @@ NIWA_URL = ""                       # e.g. https://niwa.example.ts.net (no trail
 KONBINI_URL = ""
 STATUS = None                       # kura.py: a function(site) returning the footer's {"text": …, "state": "ok|stale|down"}
 SITES = []                          # kura.py: the vaults (sites.Site), the default first
-view = threading.local()            # kura.py sets view.sites per request: the vaults that request may read
+view = threading.local()            # kura.py sets, per request: view.sites (the vaults it may read), view.who (the
+                                    # signed-in name, identity file only) and view.prefs_url ("/api/prefs" or "")
 
 
 def sites():
@@ -80,7 +81,7 @@ def rooms():
 
 # -- PWA ---------------------------------------------------------------------
 
-NAME, DESC = "Kura", "Kura (蔵, the storehouse): every vault note, with working links"
+NAME, DESC = "Kura", "Every note in the vault, with working links and full-text search"
 
 
 def shell_urls():
@@ -93,10 +94,12 @@ def manifest(theme):
     dark = theme != "day"
     return {
         "name": NAME, "short_name": NAME, "description": DESC,
-        "id": "/", "start_url": "/", "scope": "/", "display": "standalone",
+        "id": "/", "start_url": "/", "scope": "/", "display": "standalone", "lang": "en",
+        "categories": ["productivity", "books"],
         "background_color": "#1a1b26" if dark else "#e1e2e7",
         "theme_color": "#16161e" if dark else "#d0d5e3",
-        "shortcuts": [{"name": "Recently Changed", "url": "/recent"}, {"name": "Search", "url": "/search"}],
+        "shortcuts": [{"name": name, "url": url, "icons": [{"src": "/static/icons/kura-192.png", "sizes": "192x192"}]}
+                      for name, url in (("Recently Changed", "/recent"), ("Search", "/search"), ("Tags", "/t/"))],
         "icons": [
             {"src": "/static/icons/kura-192.png", "sizes": "192x192", "type": "image/png"},
             {"src": "/static/icons/kura-512.png", "sizes": "512x512", "type": "image/png"},
@@ -116,7 +119,7 @@ def service_worker():
     under = "(?:/v/(?:%s))?" % shared if shared else ""
     v = "^/v/(?!(?:%s)/)" % shared if shared else "^/v/"
     return house.service_worker(VERSION, shell_urls(), offline="/offline", bypass=["^/api/", "^/theme$", "^/preview/"],
-                                network=["^%s/search$" % under, "^/settings$", v], notes={"match": "^%s/n/" % under, "limit": 200},
+                                network=["^%s/search$" % under, "^/settings$", "^/signin$", v], notes={"match": "^%s/n/" % under, "limit": 200},
                                 pages=30, assetMatch=["^%s/a/" % under], assets=100, pins="/api/offline")
 
 
@@ -141,9 +144,11 @@ def vault_switch(site):
     if len(sites()) < 2:
         return ""
     counts = COUNTS()
+    def what(x):            # the count, and whether the vault stays off devices (private) or is shared
+        return "%d%s" % (counts.get(x.name, 0), " · private" if x.private else " · shared" if x.shared else "")
     rows = "".join(
         ('<b>%s<small>%s</small></b>' if x is site else '<a href="%s/">%s<small>%s</small></a>')
-        % ((e(x.title), counts.get(x.name, 0)) if x is site else (e(x.prefix), e(x.title), counts.get(x.name, 0)))
+        % ((e(x.title), what(x)) if x is site else (e(x.prefix), e(x.title), what(x)))
         for x in sites())
     return ('<details class="vaults"><summary class="chip%s" title="Vaults" aria-label="Vaults: %s">%s</summary>'
             '<nav class="menu" aria-label="Vaults">%s</nav></details>'
@@ -158,24 +163,48 @@ def header(site, current, subtitle="", search=True):
     if search:
         what = "Search Notes" if not site or site.default else "Search " + site.title
         tools = house.search_box("", (site.prefix if site else "") + "/search", what, "Search every note") + tools
-    return house.header(ROOM, nav(site), current, rooms(), subtitle, tools)
+    return house.header(ROOM, nav(site), current, rooms(), subtitle, tools, who=getattr(view, "who", ""))
+
+
+def feed_url(site):
+    """The vault's own feed (the default's /feed.xml, a shared one's /v/<name>/feed.xml); a private vault has none."""
+    if not site or site.private:
+        return ""
+    return site.prefix + "/feed.xml"
+
+
+def feed_link(site):
+    url = feed_url(site)
+    return ('<link rel="alternate" type="application/rss+xml" title="%s" href="%s">\n'
+            % (e(house.title(ROOM, "" if site.default else site.title)), e(url))) if url else ""
 
 
 def footer(site):
     st = STATUS(site) if STATUS else None
-    return house.footer(ROOM, st, [("/feed.xml", "RSS")])
+    url = feed_url(site)
+    return house.footer(ROOM, st, [(url, "RSS")] if url else [])
 
 
-def page(ctx, site, title, body, current="", head=""):
-    """body holds the header and <main>; the footer and the tab bar are added here."""
+def page(ctx, site, what, body, current="", head=""):
+    """body holds the header and <main>; the footer and the tab bar are added here. `what`: the page's own name
+    ("" on a vault's home); the title adds the vault (another vault than the default) and the room."""
     site = site or default_site()
-    return house.page(ctx, ROOM, title, body + footer(site), tabs(site), current, links=rooms(), head=head,
+    vault = site.title if site and not site.default else ""
+    title = house.title(ROOM, " · ".join(x for x in (what, vault) if x))
+    return house.page(ctx, ROOM, title, body + footer(site), tabs(site), current, links=rooms(), head=head + feed_link(site),
+                      prefs_url=getattr(view, "prefs_url", ""), who=getattr(view, "who", ""),
                       stylesheets=[static_url("kura.css")], scripts=[static_url("kura.js")], icons=ICON)
 
 
-def message(ctx, title, text, site=None):
-    return page(ctx, site, title, header(site, "") +
-                '<main class="msg"><div class="empty"><h2>%s</h2><p>%s</p></div></main>' % (e(title), e(text)))
+def message(ctx, title, text, site=None, actions=()):
+    return page(ctx, site, title, header(site, "") + house.message(title, text, actions))
+
+
+def offline(ctx):
+    """The precached /offline: no header search or status line (they'd be frozen at install time)."""
+    return house.page(ctx, ROOM, house.title(ROOM, "Offline"), house.header(ROOM, [], "", rooms()) + house.offline(ROOM),
+                      tabs(None), "", links=rooms(), stylesheets=[static_url("kura.css")], scripts=[static_url("kura.js")],
+                      icons=ICON)
 
 
 def preview_pane(ctx):
@@ -198,6 +227,6 @@ def settings(ctx, version, status_text, vaultkit, account=""):
         signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
                                  '<button type="submit">Sign Out</button></form>' % e(account)],
                      "Signs this browser out. With one sign-in for every room (MACHIYA_COOKIE_DOMAIN), it signs out of them all.")
-    sections = [house.appearance_section(ctx), reading, signed_in, house.apps_section(ROOM, rooms(), {}),
+    sections = [house.appearance_section(ctx, synced=bool(getattr(view, "prefs_url", ""))), reading, signed_in, house.apps_section(ROOM, rooms(), {}),
                 house.about_section(ROOM, version, status_text, vaultkit)]
-    return page(ctx, None, "Settings - kura", header(None, "", "Settings") + house.settings_page(sections, ROOM))
+    return page(ctx, None, "Settings", header(None, "", "Settings") + house.settings_page(sections, ROOM))

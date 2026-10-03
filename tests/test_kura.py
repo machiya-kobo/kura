@@ -78,6 +78,7 @@ import kura        # noqa: E402
 import search      # noqa: E402
 import sites       # noqa: E402
 import api         # noqa: E402
+from vaultkit import identity  # noqa: E402
 
 kura.state.sync()
 SERVER = kura.ThreadingHTTPServer(("127.0.0.1", 0), kura.Handler)
@@ -228,7 +229,26 @@ class ReaderTest(unittest.TestCase):
                      "/static/kura.css", "/static/icons/kura.svg", "/a/pic.png"):
             self.assertEqual(get(path)[0], 200, path)
         self.assertEqual(get("/n/Templates/Project")[0], 404)
-        self.assertEqual(get("/n/nope")[0], 404)
+        status, body = get("/n/nope")
+        self.assertEqual(status, 404)
+        self.assertIn('<main class="msg">', body)                        # centred, with the way out
+        self.assertIn('<a class="button primary" href="/search">Search</a>', body)
+        self.assertIn("<title>Not Found - Kura</title>", body)
+
+    def test_a_notes_html_never_runs_on_a_page(self):
+        """Lantern carries <script>, an <iframe>, a javascript: link with onclick: the reader page and the preview pane
+        show none of them (vaultkit renders clean HTML), and every page sends the CSP behind it."""
+        for path in ("/n/Projects/Lantern", "/preview/Projects/Lantern", "/?p=Projects/Lantern"):
+            status, headers, body = fetch(path)
+            self.assertEqual(status, 200, path)
+            article = body.split('class="nbody"', 1)[-1] if "nbody" in body else body
+            for bad in ("<script>alert", "<iframe", "javascript:", "onclick"):
+                self.assertNotIn(bad, article, (path, bad))
+            self.assertIn("https://example.com/raw", article)               # the rest of the note is still there
+            if path != "/preview/Projects/Lantern":
+                self.assertIn("script-src 'self'", headers["Content-Security-Policy"], path)
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertNotIn("Content-Security-Policy", fetch("/api/note?path=Projects/Lantern.md")[1])
 
     def test_note_page_links(self):
         _, body = get("/n/Projects/Lantern")
@@ -504,6 +524,8 @@ class VaultsTest(unittest.TestCase):
         self.assertNotEqual(fetch("/a/pic.png")[1]["Cache-Control"], "no-store")
         st, h, _ = fetch("/v/personal/n/Projects/Lantern?p=x")
         self.assertEqual((st, h["Location"]), (301, "/n/Projects/Lantern?p=x"))
+        st, h, _ = fetch("/v/personal/n/Notes/Paper%20lanterns")
+        self.assertEqual((st, h["Location"]), (301, "/n/Notes/Paper%20lanterns"))   # encoded, never a raw space
         self.assertEqual(fetch("/v/nope/n/x")[0], 404)
         self.assertEqual(fetch("/n/Runbooks/Zebrafish%20deploy")[0], 404)   # a work note is not at the default URL
         self.assertEqual(fetch("/v/work/feed.xml")[0], 404)                 # no feed for a work vault
@@ -522,7 +544,7 @@ class VaultsTest(unittest.TestCase):
     def test_header_switch(self):
         _, _, body = fetch("/")
         self.assertIn('<details class="vaults"><summary class="chip" ', body)
-        self.assertIn('<a href="/v/work/">Work Notes<small>2</small></a>', body)
+        self.assertIn('<a href="/v/work/">Work Notes<small>2 · private</small></a>', body)
         _, _, body = fetch("/v/work/")
         self.assertIn('<summary class="chip private"', body)
         self.assertIn('action="/v/work/search"', body)
@@ -535,6 +557,15 @@ class VaultsTest(unittest.TestCase):
         self.assertNotIn("/v/work", get("/api/offline")[1])
         cfg = json.loads(fetch("/sw.js")[2][fetch("/sw.js")[2].index("machiyaSW(") + 10:].rsplit(")", 1)[0])
         self.assertIn("^/v/", cfg["network"])                               # the worker never stores /v/ navigations
+        self.assertIn("^/signin$", cfg["network"])                          # nor the sign-in form
+
+    def test_manifest(self):
+        m = json.loads(get("/manifest.webmanifest")[1])
+        self.assertEqual((m["name"], m["lang"], m["start_url"]), ("Kura", "en", "/"))
+        self.assertEqual([x["url"] for x in m["shortcuts"]], ["/recent", "/search", "/t/"])
+        self.assertTrue(all(x["icons"] for x in m["shortcuts"]))
+        for icon in m["icons"]:
+            self.assertEqual(get(icon["src"])[0], 200, icon)
 
     def test_push_refuses_a_work_vault(self):
         import push
@@ -1117,6 +1148,15 @@ class SharedVaultTest(unittest.TestCase):
         self.assertIn("<link>https://kura.test/v/team/n/Guides/Onboarding</link>", body)
         self.assertNotIn("Zebrafish", body)
         self.assertNotIn("okapi", get("/feed.xml")[1].lower())             # the default feed stays the default vault's
+        self.assertNotIn("Archive/Old", body)                              # never Archive/
+        self.assertIn('href="/v/team/feed.xml"', get("/v/team/")[1])         # the footer and autodiscovery: its own feed
+        self.assertIn('<link rel="alternate" type="application/rss+xml" title="Team - Kura" href="/v/team/feed.xml">',
+                      get("/v/team/")[1])
+        work = get("/v/work/")[1]
+        self.assertNotIn("feed.xml", work)
+        self.assertIn("· private</small>", work)                            # the vault menu says which is which
+        self.assertIn("· shared</small>", work)                                  # a private vault has no feed to link
+        self.assertIn('href="/feed.xml"', get("/")[1])
         self.assertIn("Okapi", get("/v/team/feed.xml?q=okapi")[1])
         st, h, _ = fetch("/v/work/feed.xml")
         self.assertEqual((st, h["Cache-Control"]), (404, "no-store"))
@@ -1419,6 +1459,8 @@ class SignInTest(unittest.TestCase):
         st, _, body = as_("/n/Projects/Lantern", Cookie=cookie)
         self.assertEqual(st, 200)
         self.assertIn("Lantern", body)
+        self.assertIn('title="Signed in as reader"', body)                 # the person button, to Account
+        self.assertIn('<meta name="machiya-prefs" content="/api/prefs">', body)
         self.assertNotIn("Zebrafish", as_("/api/search?q=zebrafish&vault=all", Cookie=cookie)[2])   # default and shared only
         st, _, body = as_("/settings", Cookie=cookie)
         self.assertIn('action="/signout"', body)
@@ -1426,6 +1468,7 @@ class SignInTest(unittest.TestCase):
         self.assertNotIn('action="/signout"', as_("/settings", Tailscale_User_Login="owner@test")[2])
         st, h, _ = send("/signout", Origin=self.SITE, Cookie=cookie)
         self.assertEqual((st, h["Location"]), (303, "/"))
+        self.assertEqual(h["Clear-Site-Data"], '"cache"')
         cleared = [c for c in h.get_all("Set-Cookie") if c.startswith("machiya_session=")]
         self.assertEqual(len(cleared), 1)                                   # only the clearing one, nothing renewed
         self.assertIn("Max-Age=0", cleared[0])
@@ -1449,6 +1492,8 @@ class SignInTest(unittest.TestCase):
         self.assertIn('href="/signin?next=%2Fn%2FProjects%2FLantern%3Fp%3Dx"', body)
         self.assertNotIn("Work Notes", body)                               # nothing about the vaults
         self.assertNotIn("/v/work", body)
+        self.assertNotIn('class="rooms"', body)                            # nor the other rooms' addresses
+        self.assertIn("script-src 'self'", h["Content-Security-Policy"])
         st, h, body = as_("/api/search?q=lantern")
         self.assertEqual((st, h["Content-Type"].split(";")[0]), (401, "text/plain"))
         self.assertNotIn("/signin", as_("/feed.xml")[2])
@@ -1540,13 +1585,75 @@ class SignInTest(unittest.TestCase):
         try:
             for path in ("/signin", "/signout", "/api/pair"):
                 self.assertEqual(send(path, b"", Origin=self.SITE)[0], 404, path)
-            self.assertEqual(send("/api/prefs", b"{}", "PUT", Origin=self.SITE, Content_Type="application/json")[0], 404)
-            self.assertEqual(get("/api/prefs")[0], 404)
+            self.assertEqual(send("/api/prefs", b"{}", "PUT", Origin=self.SITE, Content_Type="application/json")[0], 403)
+            self.assertEqual(get("/api/prefs", user="stranger@test")[0], 403)   # prefs sit behind the old gate
             self.assertEqual(get("/signin")[0], 404)
             self.assertEqual(get("/signin", user="stranger@test")[0], 403)  # the old gate first, as before
             self.assertEqual(send("/api/search", b"")[0], 405)
         finally:
             kura.IDENTITY = saved
+
+
+class PrefsWithoutIdentityTest(unittest.TestCase):
+    """No identity file: the one person KURA_USERS admits (identity.ambient, keyed ts:<hash> of the login) keeps theme
+    and text size on the server; pages point machiya.js at /api/prefs. Nobody else gets in, nobody is named."""
+
+    def setUp(self):
+        self.saved = kura.PREFS_DB
+        kura.PREFS_DB = os.path.join(TMP, "ambient-prefs-%s.sqlite3" % self._testMethodName)
+
+    def tearDown(self):
+        kura.PREFS_DB = self.saved
+
+    def put(self, body, **headers):
+        h = {"Tailscale_User_Login": "owner@test", "Content_Type": "application/json", "Origin": "https://kura.test"}
+        h.update(headers)
+        return send("/api/prefs", json.dumps(body).encode(), "PUT", **h)
+
+    def test_the_owner_keeps_preferences(self):
+        self.assertIsNone(kura.IDENTITY)
+        st, _, body = self.put({"prefs": {"theme": "day", "text_size": "large"}})
+        self.assertEqual(st, 200, body)
+        self.assertEqual(getj("/api/prefs")[1]["prefs"], {"theme": "day", "text_size": "large"})
+        self.assertEqual(self.put({"prefs": {"theme": "night"}}, Origin="https://evil.example")[0], 403)
+        self.assertEqual(self.put({"prefs": {"theme": "night"}}, Tailscale_User_Login="stranger@test")[0], 403)
+        self.assertEqual(get("/api/prefs", user=None)[0], 403)
+        import sqlite3
+        with sqlite3.connect(kura.PREFS_DB) as db:
+            keys = {r[0] for r in db.execute("SELECT principal FROM prefs")}
+        self.assertEqual(keys, {identity.tailscale_uid("owner@test")})               # no email in the database
+
+    def test_open_mode_over_plain_http(self):
+        """KURA_AUTH=open on localhost without KURA_PUBLIC_URL: the request's own (allowed) Host is the origin, so a
+        prefs PUT from the page works over http; a page on another name never gets past the Host check."""
+        saved = (kura.AUTH, kura.ORIGINS, kura.SECURE)
+        kura.AUTH, kura.ORIGINS, kura.SECURE = "open", (), False
+        here = BASE.split("//", 1)[1]
+        try:
+            st, _, body = self.put({"prefs": {"theme": "night"}}, Origin="http://" + here)
+            self.assertEqual(st, 200, body)
+            self.assertEqual(self.put({"prefs": {"theme": "day"}}, Origin="http://evil.example")[0], 403)
+            self.assertEqual(self.put({"prefs": {"theme": "day"}}, Origin="http://evil.example", Host="evil.example")[0], 403)
+        finally:
+            kura.AUTH, kura.ORIGINS, kura.SECURE = saved
+
+    def test_the_hosted_shiori_may_write(self):
+        """Shiori serves Kura's /api/prefs at /kura/ on its own origin: its address in MACHIYA_ROOMS counts for a prefs
+        PUT, and only there (sign-out keeps to Kura's own origin)."""
+        os.environ["MACHIYA_ROOMS"] = "shiori=https://shiori.test,kura=https://kura.test"
+        try:
+            self.assertEqual(self.put({"prefs": {"theme": "day"}}, Origin="https://shiori.test")[0], 200)
+            self.assertEqual(self.put({"prefs": {"theme": "day"}}, Origin="https://other.test")[0], 403)
+        finally:
+            del os.environ["MACHIYA_ROOMS"]
+        self.assertEqual(self.put({"prefs": {"theme": "day"}}, Origin="https://shiori.test")[0], 403)
+
+    def test_pages_sync_and_name_nobody(self):
+        for path in ("/", "/n/Projects/Lantern", "/settings"):
+            body = get(path)[1]
+            self.assertIn('<meta name="machiya-prefs" content="/api/prefs">', body, path)
+            self.assertNotIn("Signed in as", body, path)                 # no identity file: no account to show
+        self.assertIn("your other devices follow", get("/settings")[1])
 
 
 def tearDownModule():
