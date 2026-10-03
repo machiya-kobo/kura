@@ -566,6 +566,16 @@ class VaultsTest(unittest.TestCase):
         self.assertTrue(all(x["icons"] for x in m["shortcuts"]))
         for icon in m["icons"]:
             self.assertEqual(get(icon["src"])[0], 200, icon)
+        self.assertEqual(m["background_color"], "#1a1b26")                  # System on an unknown device: Night
+        _, h, body = fetch("/manifest.webmanifest", headers={"Sec-CH-Prefers-Color-Scheme": "light"})
+        light = json.loads(body)
+        self.assertEqual((light["background_color"], light["theme_color"]), ("#e1e2e7", "#d0d5e3"))   # a light splash
+        self.assertEqual(light["user_preferences"]["color_scheme_dark"]["background_color"], "#1a1b26")
+        self.assertIn("Sec-CH-Prefers-Color-Scheme", h["Vary"])
+        night = json.loads(fetch("/manifest.webmanifest", cookie="theme=night",
+                                 headers={"Sec-CH-Prefers-Color-Scheme": "light"})[2])
+        self.assertEqual(night["background_color"], "#1a1b26")              # a theme chosen in Settings wins
+        self.assertIn("Sec-CH-Prefers-Color-Scheme", fetch("/")[1]["Accept-CH"])
 
     def test_push_refuses_a_work_vault(self):
         import push

@@ -90,14 +90,13 @@ def shell_urls():
             "/static/icons/kura.svg", "/static/icons/kura-192.png", "/offline"]
 
 
-def manifest(theme):
-    dark = theme != "day"
+def manifest(theme, headers=None):
+    """theme: the request's Settings choice; headers: the request's (Sec-CH-Prefers-Color-Scheme picks System's
+    colours: house.manifest_colors)."""
     return {
         "name": NAME, "short_name": NAME, "description": DESC,
         "id": "/", "start_url": "/", "scope": "/", "display": "standalone", "lang": "en",
         "categories": ["productivity", "books"],
-        "background_color": "#1a1b26" if dark else "#e1e2e7",
-        "theme_color": "#16161e" if dark else "#d0d5e3",
         "shortcuts": [{"name": name, "url": url, "icons": [{"src": "/static/icons/kura-192.png", "sizes": "192x192"}]}
                       for name, url in (("Recently Changed", "/recent"), ("Search", "/search"), ("Tags", "/t/"))],
         "icons": [
@@ -105,6 +104,7 @@ def manifest(theme):
             {"src": "/static/icons/kura-512.png", "sizes": "512x512", "type": "image/png"},
             {"src": "/static/icons/kura-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
+        **house.manifest_colors(theme, headers),
     }
 
 

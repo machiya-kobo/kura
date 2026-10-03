@@ -544,8 +544,8 @@ class Handler(BaseHTTPRequestHandler):
         shell.view.sites = self.sites               # this request's vault switch and "All Vaults"
         ctx = self.ctx()
         if path == "/manifest.webmanifest":
-            return self.send(200, json.dumps(shell.manifest(ctx.theme), indent=1), "application/manifest+json",
-                             headers=[("Cache-Control", "no-cache")])
+            return self.send(200, json.dumps(shell.manifest(ctx.theme, self.headers), indent=1), "application/manifest+json",
+                             headers=[("Cache-Control", "no-cache"), ("Vary", shell.house.MANIFEST_VARY)])
         if path == "/sw.js":
             return self.send(200, shell.service_worker(), "text/javascript", headers=[("Cache-Control", "no-cache")])
         if path == "/offline":
