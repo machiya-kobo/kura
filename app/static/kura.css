@@ -49,7 +49,7 @@ ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(-
 .vaults .menu b { background: var(--hl); }
 .vaults .menu small { color: var(--muted); font-weight: 400; margin-left: auto; }
 .kmeta .chip { margin-right: 4px; }
-p.scope { margin: calc(-1 * var(--sp-2)) 0 var(--sp-3); font-size: var(--fs-s); }
+p.scope { margin: 0 0 var(--sp-3); font-size: var(--fs-s); }
 
 /* ---- the reader: folders | notes | preview (pages.columns) ------------------------------------------------- */
 .kgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; }
@@ -58,7 +58,6 @@ p.scope { margin: calc(-1 * var(--sp-2)) 0 var(--sp-3); font-size: var(--fs-s); 
 .kgrid:not(.khome) .kside { display: none; }          /* phones: the tree only on the home page */
 .kside .sechead { margin-top: var(--sp-3); }
 .ktitle { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
-.klist form.search { margin: var(--sp-1) 0 var(--sp-4); }
 .tagcloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--sp-3); }
 .tagcloud a.tag { font-size: var(--fs-s); padding: 2px 9px; }
 .tagcloud a.tag .kfc { margin-left: 4px; }

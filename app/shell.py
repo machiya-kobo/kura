@@ -39,14 +39,12 @@ def default_site():
 
 def nav(site):
     p = site.prefix if site else ""
-    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/search", "search", "Search"),
-            (p + "/t/", "tags", "Tags")]
+    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/t/", "tags", "Tags")]
 
 
 def tabs(site):
     p = site.prefix if site else ""
-    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/search", "search", "Search"),
-            (p + "/t/", "tags", "Tags")]
+    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/t/", "tags", "Tags")]
 
 
 def static_path(name):
@@ -156,15 +154,27 @@ def vault_switch(site):
             % (" private" if site.private else "", e(site.title), e(site.title), rows))
 
 
-def header(site, current, subtitle="", search=True):
-    """The room's header: nav, the Search Notes field (not on /search, which has its own), the vault switch, the
-    Rooms switcher and the gear. `site`: the vault being read (its prefix goes into every link)."""
+def search_bar(site, q="", everywhere=False, focus=False):
+    """The search pill under the header (vaultkit's search_bar; machiya.js shows the results as you type by fetching the
+    vault's /search and swapping <main>). `everywhere`: the owner's "All Vaults" search keeps `vaults=all` in both the
+    form and the live fetch. `focus`: the empty search page puts the cursor in it."""
+    p = site.prefix if site else ""
+    what = "Search Notes" if not site or site.default else "Search " + site.title
+    bar = house.search_bar(q, p + "/search" + ("?vaults=all" if everywhere else ""), what, "Search every note")
+    if everywhere:
+        bar = bar.replace("</form>", '<input type="hidden" name="vaults" value="all"></form>', 1)
+    if focus:
+        bar = bar.replace('enterkeyhint="search"', 'enterkeyhint="search" autofocus', 1)
+    return bar
+
+
+def header(site, current, subtitle="", q="", everywhere=False, focus=False):
+    """The room's header: nav, the vault switch, the Rooms switcher and the gear, with the search pill (the page's own
+    field: /search has none in <main>) under them. `site`: the vault being read (its prefix goes into every link)."""
     site = site or default_site()
     tools = vault_switch(site) if site else ""
-    if search:
-        what = "Search Notes" if not site or site.default else "Search " + site.title
-        tools = house.search_box("", (site.prefix if site else "") + "/search", what, "Search every note") + tools
-    return house.header(ROOM, nav(site), current, rooms(), subtitle, tools, who=getattr(view, "who", ""))
+    return house.header(ROOM, nav(site), current, rooms(), subtitle, tools, who=getattr(view, "who", ""),
+                        search=search_bar(site, q, everywhere, focus))
 
 
 def feed_url(site):

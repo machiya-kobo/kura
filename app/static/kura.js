@@ -141,13 +141,13 @@ mermaidDiagrams();
 // kura's reader: on wide screens a note link in the list (or inside the preview) loads that note into the preview
 // pane instead of leaving the page; "Open" (or a modifier click) opens it fully. ?p=<slug> keeps the choice on reload.
 (function kuraPreview() {
-  const pane = document.querySelector(".kpreview");
-  if (!pane) return;
   let seq = 0;
   const select = (href) => {
     for (const a of document.querySelectorAll(".klist a.kn")) a.classList.toggle("sel", a.getAttribute("href") === href);
   };
   document.addEventListener("click", async (ev) => {
+    const pane = document.querySelector(".kpreview");                // looked up per click: live results swap <main>
+    if (!pane) return;
     const a = ev.target.closest(".klist a.kn, .kpreview .nbody a[href*='/n/'], .kpreview .gsec a[href*='/n/']");
     if (!a || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
     if (getComputedStyle(pane).display === "none") return;            // tablets and phones: open normally
@@ -176,4 +176,21 @@ mermaidDiagrams();
       if (my === seq) pane.classList.remove("loading");
     }
   });
+})();
+
+// The search pill shows results as you type by swapping <main> for the search page's (machiya.js). Whatever the page was
+// before, the results need the reader's layout (the search page names its classes in .live-main), and what this script
+// set up on <main> (Edit in Obsidian, diagrams) has to run again on the new content, or on the page put back when the
+// field is cleared. The preview-pane clicks above are delegated, so they need nothing.
+(function liveResults() {
+  if (!main) return;
+  const own = main.className;
+  new MutationObserver(() => {
+    const m = main.querySelector(":scope > .live-main");
+    const busy = main.classList.contains("live-loading");
+    main.className = m ? m.dataset.class : own;
+    if (busy) main.classList.add("live-loading");
+    obsidianLinks(main);
+    mermaidDiagrams(main);
+  }).observe(main, { childList: true });
 })();

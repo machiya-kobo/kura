@@ -27,10 +27,10 @@ def visible(g):
     return [n for n in g.notes.values() if not n.rel.startswith(HIDDEN)]
 
 
-def top(ctx, g, current, subtitle=""):
-    """The header (shell.header): nav, the Search Notes field (left out on /search, which has its own), the vault
-    switch, the Rooms switcher and the settings gear. `g` is the vault being read (a sites.Site)."""
-    return shell.header(g, current, subtitle, search=current != "search")
+def top(ctx, g, current, subtitle="", q="", everywhere=False, focus=False):
+    """The header (shell.header): nav, the vault switch, the Rooms switcher, the settings gear and the search pill
+    (`q`: the query on /search, "" elsewhere). `g` is the vault being read (a sites.Site)."""
+    return shell.header(g, current, subtitle, q, everywhere, focus)
 
 
 def npage(ctx, g, title, body, current="", head=""):
@@ -245,9 +245,12 @@ def pick(g, listed, sel):
     return n
 
 
-def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra="", wide=False, preview_of=None):
+def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra="", wide=False, preview_of=None,
+            searching=None):
     """The three-column reader: folders | notes | preview (two columns on tablets, one on phones). `preview_of`:
-    (vault, note) to preview instead of picking from `listed` (a search across vaults)."""
+    (vault, note) to preview instead of picking from `listed` (a search across vaults). `searching`: (query,
+    everywhere, focus) on /search, whose pill is the page's field; its <main> then names its own classes
+    (`live-main`) so kura.js can give them to any page the results are shown on as you type."""
     pane = shell.preview_pane(ctx) and not wide          # Reading → Preview Pane, off: the list has the room
     pg = g
     if preview_of:
@@ -255,12 +258,14 @@ def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra=""
     else:
         n = pick(g, listed, sel) if pane else None
     items = "".join(rows(n))
-    body = ('<main class="kgrid notes%s%s"><nav class="kside" aria-label="Folders"><h3 class="sechead">Folders</h3>%s</nav>'
+    cls = "kgrid notes%s%s" % (" khome" if open_path is None and current == "kura" else "", "" if pane else " kwide")
+    body = ('<main class="%s">%s<nav class="kside" aria-label="Folders"><h3 class="sechead">Folders</h3>%s</nav>'
             '<section class="klist">%s%s%s</section>%s</main>'
-            % (" khome" if open_path is None and current == "kura" else "", "" if pane else " kwide",
+            % (cls, ('<div class="live-main" data-class="%s" hidden></div>' % cls) if searching else "",
                tree(g, visible(g), "", open_path), head, ('<ul class="kns">%s</ul>' % items) if items else "", extra,
                ('<aside class="kpreview" aria-label="Preview">%s</aside>' % preview(pg, n)) if pane else ""))
-    return npage(ctx, g, title, top(ctx, g, current) + body, current)
+    q, everywhere, focus = searching or ("", False, False)
+    return npage(ctx, g, title, top(ctx, g, current, q=q, everywhere=everywhere, focus=focus) + body, current)
 
 
 def home(ctx, g, sel=""):
@@ -309,21 +314,18 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
     or with `everywhere` every vault (the owner's "All Vaults"; the response is then never stored)."""
     action = g.prefix + "/search"
     scope_sites = shell.sites() if everywhere else [g]
-    box = shell.house.search_box(q, action, "Search Notes" if g.default else "Search " + g.title, "Search every note")
-    if not q:
-        box = box.replace('enterkeyhint="search"', 'enterkeyhint="search" autofocus', 1)
-    if everywhere:
-        box = box.replace("</form>", '<input type="hidden" name="vaults" value="all"></form>', 1)
+    box = ""
     if len(shell.sites()) > 1:
         other = ('<a href="%s?q=%s">%s Only</a>' % (action, quote(q), e(g.title))) if everywhere else \
             ('<a href="%s?q=%s&amp;vaults=all">All Vaults</a>' % (action, quote(q)))
-        box += '<p class="muted scope">Searching <b>%s</b> &middot; %s</p>' % ("All Vaults" if everywhere else e(g.title), other)
+        box = '<p class="muted scope">Searching <b>%s</b> &middot; %s</p>' % ("All Vaults" if everywhere else e(g.title), other)
+    searching = (q, everywhere, not q)                          # the pill is the field; the empty page focuses it
     if not q:
         return columns(ctx, g, "Search", "search", None,
                        box + '<p class="muted">Titles and the full text of every note. <code>"a phrase"</code>, '
                        '<code>-word</code>, <code>word*</code>, <code>title:</code>, <code>tag:</code>, '
                        '<code>folder:</code> and <code>vault:</code> work too.</p>',
-                       lambda n: (), [], sel)
+                       lambda n: (), [], sel, searching=searching)
     title_hits = [(x, n) for x in scope_sites for n in visible(x) if q.lower() in n.title.lower()][:20]
     seen = {(x.name, n.rel) for x, n in title_hits}
     text_hits = []
@@ -354,4 +356,4 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
             out.append('<li class="muted">%s</li>' % e(error or "Nothing else in the note text."))
         return out
     return columns(ctx, g, q, "search", None, box, rows, mine, sel, shell.house.handoff(q, shell.rooms()),
-                   preview_of=first)
+                   preview_of=first, searching=searching)

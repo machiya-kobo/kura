@@ -268,21 +268,42 @@ class ShellTest(unittest.TestCase):
     def test_room_page(self):
         _, body = get("/")
         for want in ('href="/static/machiya.css?v=', 'href="/static/kura.css?v=', 'class="theme-system room-kura"',
-                     '<form class="search"', 'placeholder="Search Notes"', 'class="foot"', "synced ", 'href="/settings"'):
+                     '<form class="search bar"', 'placeholder="Search Notes"', 'class="foot"', "synced ", 'href="/settings"'):
             self.assertIn(want, body)
         for name in ("machiya.css", "machiya.js", "machiya-sw.js"):
             self.assertEqual(get("/static/" + name)[0], 200, name)
 
-    def test_desktop_nav_has_search_third_and_the_header_field_is_hidden(self):
-        # Search has no field in the header any more (the floating bar and this nav link replace it), in every vault
-        for path, prefix in (("/", ""), ("/v/work/", "/v/work")):
+    def test_search_pill_on_every_page_and_no_search_tab_or_link(self):
+        # The search field is the pill under the pinned header (machiya.js shows results as you type): on every page of
+        # every vault, aimed at that vault's /search; the nav and the tab bar have no Search entry any more
+        for path, prefix, what in (("/", "", "Search Notes"), ("/recent", "", "Search Notes"), ("/t/", "", "Search Notes"),
+                                   ("/n/Notes/Tea%20brewing", "", "Search Notes"), ("/nope", "", "Search Notes"),
+                                   ("/settings", "", "Search Notes"), ("/search?q=tea", "", "Search Notes"),
+                                   ("/v/work/", "/v/work", "Search Work Notes"),
+                                   ("/v/work/search?q=plan", "/v/work", "Search Work Notes")):
             _, body = get(path)
-            nav = re.search(r'<nav class="nav">(.*?)</nav>', body).group(1)
-            self.assertEqual(re.findall(r'(?:<b class="here">|<a href="[^"]*">)([^<]+)', nav),
-                             ["Home", "Recent", "Search", "Tags"], path)
-            self.assertIn('<a href="%s/search">Search</a>' % prefix, nav)
-        css = get("/static/machiya.css")[1]
-        self.assertIn(".topbar form.search { display: none; }", css)
+            self.assertIn('<div class="searchrow"><form class="search bar" role="search" action="%s/search">' % prefix, body, path)
+            self.assertIn('placeholder="%s"' % what, body, path)
+            nav = re.search(r'<nav class="nav">(.*?)</nav>', body)
+            if nav:
+                self.assertEqual(re.findall(r'(?:<b class="here">|<a href="[^"]*">)([^<]+)', nav.group(1)), ["Home", "Recent", "Tags"], path)
+            tabs = re.search(r'<nav class="tabbar".*?</nav>', body, re.S).group(0)
+            self.assertNotIn('/search"', tabs, path)
+            self.assertEqual(body.count("<form"), 1, path)
+
+    def test_the_search_page_has_no_field_in_main(self):
+        for path in ("/search", "/search?q=tea", "/search?q=nothing-matches-this", "/search?q=tea&vaults=all", "/v/work/search?q=plan"):
+            _, body = get(path)
+            main = body[body.index("<main"):body.index("</main>")]
+            self.assertNotIn("<form", main, path)
+            self.assertNotIn('type="search"', main, path)
+            self.assertIn('<div class="live-main" data-class="kgrid notes', main, path)   # kura.js: the results' layout
+        self.assertIn("autofocus", get("/search")[1])                                  # the empty page: the cursor is in the pill
+        self.assertNotIn("autofocus", get("/search?q=tea")[1])
+        _, body = get("/search?q=tea&vaults=all")                                      # All Vaults stays in the pill and its live fetch
+        self.assertIn('action="/search?vaults=all"', body)
+        self.assertIn('<input type="hidden" name="vaults" value="all">', body)
+        self.assertNotIn('name="vaults"', get("/search?q=tea")[1])
 
     def test_settings(self):
         status, headers, body = fetch("/settings")
