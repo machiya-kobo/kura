@@ -123,6 +123,7 @@ def host_allowed(value, allowed=None):
 api.PUBLIC_URL = PUBLIC_URL
 api.SHIORI_LINKS = os.environ.get("KURA_SHIORI_LINKS", "").strip().lower() in ("1", "true", "yes", "on")
 HISTER_URL = os.environ.get("KURA_HISTER_URL", "").rstrip("/")         # set: push every note into Hister
+HISTER_TOKEN_FILE = os.environ.get("KURA_HISTER_TOKEN_FILE", "")       # the owner's Hister token (X-Access-Token); unset: none
 DB = os.environ.get("KURA_DB", "/data/kura.sqlite3")
 # Per-user preferences (/api/prefs): their own file next to KURA_DB, so clearing what was pushed
 # into Hister never clears anyone's preferences. Made on first use.
@@ -215,7 +216,7 @@ class State:
         self.loop_error = None
         # The push needs a stable public base for its URLs (Hister documents key on them), so it needs PUBLIC_URL.
         # It sends the default vault and the shared ones: private vaults never reach Hister (push.py refuses them).
-        self.push = push.Push(HISTER_URL, DB, self.default.subdir, PUBLIC_URL) if HISTER_URL and PUBLIC_URL else None
+        self.push = push.Push(HISTER_URL, DB, self.default.subdir, PUBLIC_URL, HISTER_TOKEN_FILE) if HISTER_URL and PUBLIC_URL else None
 
     @property
     def vault(self):
@@ -849,7 +850,7 @@ def main():
         ", ".join("%s%s" % (x.name, " (default)" if x.default else "") for x in state.sites), POLL,
         "from %s" % IDENTITY.path if IDENTITY is not None else
         "anyone (KURA_AUTH=open)" if AUTH == "open" else ",".join(sorted(USERS)) or "NOBODY (set KURA_USERS)",
-        ("to %s" % HISTER_URL) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
+        ("to %s%s" % (HISTER_URL, " with a token" if HISTER_TOKEN_FILE else "")) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
         (", settings from %s" % ENV_FILE) if ENV_FILE else ""), flush=True)
     print("kura: listening on %s:%d" % (BIND, PORT), flush=True)
     if AUTH == "open":

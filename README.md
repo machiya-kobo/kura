@@ -318,6 +318,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 | `MACHIYA_COOKIE_DOMAIN` | — | share Theme, Text Size and Apps across the rooms on this domain (e.g. `example.ts.net`) |
 | `KURA_SHIORI_LINKS` | — | `1`: a note with external links shows "Save links in Shiori" (`shiori://save-links?path=<vault path>`), default vault only. Off, nothing changes |
 | `KURA_HISTER_URL` | — | push every note of the default and the shared vaults into Hister (label `vault`); a vault made private again is withdrawn; needs `KURA_PUBLIC_URL` |
+| `KURA_HISTER_TOKEN_FILE` | — | a file holding the owner's Hister token, sent as `X-Access-Token` on every call to Hister (add, delete). Read on each call, so a regenerated token needs no restart; set but empty or unreadable, the push waits and retries instead of sending without it. Never logged. Unset: no token, as before. The token is a secret: keep the file out of the repository (`chmod 600`) |
 | `KURA_DB` | `/data/kura.sqlite3` | what the push sent (URL + hash per note). Preferences (`/api/prefs`) live in `prefs.sqlite3` in the same folder (0600, made on first use), so deleting `KURA_DB` to re-send everything to Hister keeps them |
 | `KURA_PORT` | `8080` | |
 | `TZ` | the system zone (UTC in the image) | the day "changed yesterday" is counted in |

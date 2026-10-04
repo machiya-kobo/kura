@@ -3,6 +3,8 @@
 Run with `python3 -m unittest discover -s tests` (needs markdown and pyyaml), or in the image:
   docker build -t kura-test app && docker run --rm --user 1000:1000 -v "$PWD":/k -w /k --entrypoint python3 kura-test -m unittest discover -s tests
 """
+import contextlib
+import io
 import json
 import os
 import re
@@ -1066,6 +1068,8 @@ class MirrorModeTest(unittest.TestCase):
 
 class FakeHister(kura.BaseHTTPRequestHandler):
     calls = []
+    tokens = []                     # the X-Access-Token of each call (None: none sent)
+    redirect = False                # answer 302 to another address
     refuse = False                  # answer 500 to every delete
 
     def log_message(self, *args):
@@ -1074,6 +1078,13 @@ class FakeHister(kura.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeHister.calls.append((self.path, self.headers.get("Origin"), body))
+        FakeHister.tokens.append(self.headers.get("X-Access-Token"))
+        if FakeHister.redirect:
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:9/elsewhere")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         refused = FakeHister.refuse and self.path == "/api/delete"
         self.send_response(500 if refused else 200 if self.headers.get("Origin") == "hister://" else 403)
         self.send_header("Content-Length", "2")
@@ -1093,6 +1104,71 @@ class PushTest(unittest.TestCase):
 
     def tearDown(self):
         self.srv.shutdown()
+
+    def hister_with(self, token_file):
+        import push
+        FakeHister.calls, FakeHister.tokens, FakeHister.redirect = [], [], False
+        db = os.path.join(TMP, "push-token-%s.sqlite3" % self.id().rsplit(".", 1)[-1])
+        return push.Push("http://127.0.0.1:%d" % self.srv.server_address[1], db, "personal", "https://kura.test", token_file)
+
+    def test_the_owner_token_goes_on_every_call_when_a_file_is_set(self):
+        secret = "tok-7f3a9c0d51e24b86"
+        tf = os.path.join(TMP, "hister-token")
+        with open(tf, "w") as f:
+            f.write(secret + "\n")
+        os.chmod(tf, 0o600)
+        p = self.hister_with(tf)
+        err = io.StringIO()
+        with contextlib.redirect_stdout(err), contextlib.redirect_stderr(err):
+            r = p.run_once(kura.state.vault, self.notes)
+            p.h.delete("https://kura.test/n/gone")
+            with open(tf, "w") as f:                    # a regenerated token is used from the next call on, no restart
+                f.write("tok-new-0000\n")
+            p.h.delete("https://kura.test/n/gone2")
+        self.assertEqual(r["pushed"], 4)
+        adds_and_deletes = [c[0] for c in FakeHister.calls]
+        self.assertEqual(adds_and_deletes.count("/api/add"), 4)
+        self.assertEqual(FakeHister.tokens, [secret] * 5 + ["tok-new-0000"])      # four adds, a delete, then the new token
+        self.assertTrue(all(o == "hister://" for _, o, _ in FakeHister.calls))
+        out = err.getvalue() + json.dumps(p.status())                               # never in a log or in the status
+        self.assertNotIn(secret, out)
+        self.assertNotIn("tok-new", out)
+        self.assertNotIn(secret, json.dumps(FakeHister.calls))                     # nor in a body or a URL
+
+    def test_no_token_file_sends_no_token(self):
+        p = self.hister_with("")
+        p.run_once(kura.state.vault, self.notes)
+        p.h.delete("https://kura.test/n/gone")
+        self.assertEqual(len(FakeHister.tokens), 5)
+        self.assertEqual(set(FakeHister.tokens), {None})
+
+    def test_a_token_file_that_is_missing_or_empty_stops_the_call(self):
+        for content in (None, "", "two words\n"):
+            tf = os.path.join(TMP, "hister-token-bad")
+            if content is None:
+                if os.path.exists(tf):
+                    os.remove(tf)
+            else:
+                with open(tf, "w") as f:
+                    f.write(content)
+            p = self.hister_with(tf)
+            with contextlib.redirect_stdout(io.StringIO()):
+                r = p.run_once(kura.state.vault, self.notes)
+            self.assertEqual(FakeHister.calls, [], content)                      # fail closed: nothing goes out
+            self.assertFalse(r["complete"], content)                             # and the next sync tries again
+            self.assertTrue(p.pending, content)
+            self.assertIn("KURA_HISTER_TOKEN_FILE", p.status()["error"])
+
+    def test_the_token_does_not_follow_a_redirect(self):
+        tf = os.path.join(TMP, "hister-token")
+        with open(tf, "w") as f:
+            f.write("tok-redirect-1\n")
+        p = self.hister_with(tf)
+        FakeHister.redirect = True
+        self.addCleanup(setattr, FakeHister, "redirect", False)
+        self.assertFalse(p.h.add({"url": "https://kura.test/n/x"}))
+        self.assertEqual(len(FakeHister.tokens), 1)                                # one call; the 302 was not followed
+        self.assertTrue(p.h.error.startswith("HTTP 302"))
 
     def test_push_then_nothing(self):
         r = self.p.run_once(kura.state.vault, self.notes)

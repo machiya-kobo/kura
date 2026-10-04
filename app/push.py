@@ -16,6 +16,10 @@ find notes next to the pages they cite. Notes stay in Hister once pushed; Shiori
 - Hister's skip rules are expected to refuse the rooms' own hosts (the extension must never capture Kura/Konbini/Niwa
   pages); vault documents carry metadata.ignore_skip_rules, the per-document override.
 - Every Hister call sends `Origin: hister://`. The default vault and the shared vaults are pushed, nothing else.
+- With KURA_HISTER_TOKEN_FILE every call also sends the owner's Hister token as `X-Access-Token`. The file is read on
+  every call (a regenerated token needs no restart); a file that is set but empty or unreadable stops the call
+  (fail closed: nothing goes out without the token Hister will want). The token is never logged, put in a URL or
+  argv or an error text, and a redirect is never followed, so it can't go to another host.
 """
 import datetime
 import hashlib
@@ -28,6 +32,7 @@ import urllib.request
 
 import api
 import search
+from vaultkit import read_secret
 
 LABEL = "vault"
 DOC_V = 2                           # the document's shape; 2 = the vault_* metadata keys
@@ -35,26 +40,42 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS hister_docs (
     rel TEXT PRIMARY KEY, url TEXT, sha TEXT, pushed TEXT, status TEXT)"""
 
 
-class Hister:
-    """The two Hister calls the push needs, over HISTER_URL (for example http://hister:4433 on a shared Docker network)."""
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None                 # a 3xx is an error answer: the token never follows to another address
 
-    def __init__(self, url):
+
+OPENER = urllib.request.build_opener(NoRedirect)
+
+
+class Hister:
+    """The two Hister calls the push needs, over HISTER_URL (for example http://hister:4433 on a shared Docker network).
+    `token_file`: KURA_HISTER_TOKEN_FILE, the owner's Hister token ('' = send none)."""
+
+    def __init__(self, url, token_file=""):
         self.api = url.rstrip("/")
+        self.token_file = token_file
         self.error = ""
 
     def call(self, method, path, body=None, timeout=30):
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.api + path, data=data, method=method, headers={
-            "Origin": "hister://", "Accept": "application/json", "Content-Type": "application/json"})
+        headers = {"Origin": "hister://", "Accept": "application/json", "Content-Type": "application/json"}
+        if self.token_file:
+            token = read_secret(self.token_file)        # read per call: a regenerated token needs no restart
+            if not token or any(c.isspace() or ord(c) < 32 for c in token):
+                self.error = "hister unreachable: no usable token in KURA_HISTER_TOKEN_FILE"    # "unreachable": retried
+                return 0, None
+            headers["X-Access-Token"] = token
+        req = urllib.request.Request(self.api + path, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with OPENER.open(req, timeout=timeout) as r:
                 raw, status = r.read(), r.status
         except urllib.error.HTTPError as e:
             raw, status = e.read(), e.code
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.error = "hister unreachable: %s" % e
             return 0, None
-        self.error = "" if status < 400 else "HTTP %d: %s" % (status, raw[:200].decode("utf-8", "replace"))
+        self.error = "" if status < 300 else "HTTP %d: %s" % (status, raw[:200].decode("utf-8", "replace"))
         return status, raw
 
     def add(self, doc):
@@ -77,8 +98,8 @@ def in_scope(key, prefix):
 
 
 class Push:
-    def __init__(self, hister_url, db_path, subdir, base_url):     # subdir: the default vault's folder
-        self.h = Hister(hister_url)
+    def __init__(self, hister_url, db_path, subdir, base_url, token_file=""):     # subdir: the default vault's folder
+        self.h = Hister(hister_url, token_file)
         self.subdir, self.base = subdir, base_url.rstrip("/")
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
