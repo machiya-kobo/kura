@@ -268,7 +268,7 @@ class ShellTest(unittest.TestCase):
     def test_room_page(self):
         _, body = get("/")
         for want in ('href="/static/machiya.css?v=', 'href="/static/kura.css?v=', 'class="theme-system room-kura"',
-                     '<form class="search bar"', 'placeholder="Search Notes"', 'class="foot"', "synced ", 'href="/settings"'):
+                     '<form class="search searchbar"', 'placeholder="Search Notes"', 'class="foot"', "synced ", 'href="/settings"'):
             self.assertIn(want, body)
         for name in ("machiya.css", "machiya.js", "machiya-sw.js"):
             self.assertEqual(get("/static/" + name)[0], 200, name)
@@ -282,7 +282,7 @@ class ShellTest(unittest.TestCase):
                                    ("/v/work/", "/v/work", "Search Work Notes"),
                                    ("/v/work/search?q=plan", "/v/work", "Search Work Notes")):
             _, body = get(path)
-            self.assertIn('<div class="searchrow"><form class="search bar" role="search" action="%s/search">' % prefix, body, path)
+            self.assertIn('<div class="searchrow"><form class="search searchbar" role="search" action="%s/search">' % prefix, body, path)
             self.assertIn('placeholder="%s"' % what, body, path)
             nav = re.search(r'<nav class="nav">(.*?)</nav>', body)
             if nav:
