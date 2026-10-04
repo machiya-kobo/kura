@@ -66,8 +66,9 @@ of notes, if they aren't at the top). `tools/quickstart-test` runs these steps f
   IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS`.
 - **People on your tailnet:** listen on `127.0.0.1`, put `tailscale serve` in front, and list their Tailscale logins in
   `KURA_USERS` (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody). `/api/status` always answers, for monitoring, and so does `/api/changelog` (the first 64 KiB of [`app/CHANGELOG.md`](app/CHANGELOG.md), for the Machiya landing page's recent deploys).
-- **People, agents, sign-in or Shiori devices:** turn on Machiya's identity file with `python3 -m vaultkit.identity setup`,
-  which prints the settings for each room. It's off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
+- **People, agents, sign-in or Shiori devices:** turn on Machiya's identity file with `cd app && python3 -m vaultkit.identity setup`
+  (in the Quickstart's venv: `cd app && ../.venv/bin/python -m vaultkit.identity setup`; vaultkit lives in `app/`), which prints the
+  settings for each room. It's off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
 - **Hister's users as the sign-in:** `KURA_AUTH=hister` (off unless you set it; it doesn't combine with the identity file). Kura
   asks Machiya's sign-in helper (hister-login) whether the caller is signed in to Hister: one sign-in for Hister and every room,
   and signing out anywhere ends it. A signed-out page goes to the helper's sign-in, an API call gets `401 {"error": "sign in",
@@ -349,8 +350,9 @@ docker run --init -p 127.0.0.1:8080:8080 -v kura-data:/data \
 **Native, on a checkout you already have** (read-only, no clone):
 
 ```sh
-pip install 'markdown>=3.7' pyyaml
-KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB=/tmp/kura.sqlite3 python3 app/kura.py
+python3 -m venv .venv && .venv/bin/pip install 'markdown>=3.7' pyyaml
+mkdir -p data
+KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB="$PWD/data/kura.sqlite3" .venv/bin/python app/kura.py
 ```
 
 **Who may read it:** see "Who can use it" above. With `tailscale serve`, Kura trusts the `Tailscale-User-Login` header it sets, so listen on `127.0.0.1` (`KURA_BIND`) and block the port from outside.
