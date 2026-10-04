@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.12
+
+- The Rooms menu's Machiya row reads "Machiya · home": the stack's front door; its status page moved to /status (vaultkit 0.19.1).
+
 ## 0.6.11
 
 - `KURA_AUTH=hister`: Hister's sign-in (through the hister-login helper) as Kura's gate, with no Tailscale fallback: signed out goes to sign-in, sign-in unavailable is a 503 (vaultkit 0.19.0). Off by default; `tailscale` is unchanged.
