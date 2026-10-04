@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.13
+
+- The open `/api/status` no longer names any vault: it gives `vault_count` and the default vault's counts; the names and per-vault detail are for the signed-in owner only.
+- With Hister's sign-in, a request that carries a wrong `X-Access-Token` or `Authorization` gets 401, on pages too, instead of a redirect to sign in.
+
 ## 0.6.12
 
 - The Rooms menu's Machiya row reads "Machiya · home": the stack's front door; its status page moved to /status (vaultkit 0.19.1).
