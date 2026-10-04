@@ -31,11 +31,15 @@ import sites  # noqa: E402
 import push  # noqa: E402
 import search  # noqa: E402
 import shell  # noqa: E402
+from vaultkit import changelog  # noqa: E402
 from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
 VERSION = "0.6.8"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# GET /api/changelog serves the first of these: next to the app (the image), else the repository's (a checkout)
+CHANGELOG_FILES = [os.path.join(APP_DIR, "CHANGELOG.md"), os.path.join(os.path.dirname(APP_DIR), "CHANGELOG.md")]
 PORT = int(os.environ.get("KURA_PORT", "8080"))
 REPO_URL = os.environ.get("KURA_REPO_URL", "").strip()
 REPO_DIR = os.environ.get("KURA_REPO_DIR", "/data/repo")
@@ -498,6 +502,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def changelog(self):
+        """GET/HEAD /api/changelog: CHANGELOG.md's first 64 KiB (vaultkit.changelog), ETag/304, 404 without the file."""
+        path = next((f for f in CHANGELOG_FILES if os.path.isfile(f)), CHANGELOG_FILES[0])
+        status, body, headers = changelog.handle(path, self.headers)
+        ctype = next(v for k, v in headers if k == "Content-Type")
+        return self.send(status, body, ctype, headers=[(k, v) for k, v in headers if k != "Content-Type"])
+
     def status(self, owner):
         """/api/status needs no identity (the probes read it), so the open view carries no configuration: no repo URL, no
         folder, and error texts reduced to "sync failed" / "push failed" (they can name hosts and paths), which still
@@ -528,6 +539,8 @@ class Handler(BaseHTTPRequestHandler):
         path, query = unquote(url.path), parse_qs(url.query)
         if path == "/api/status":
             return self.send_json(200, self.status(self.owner()))
+        if path == "/api/changelog":                # the landing page's "recent deploys": open, like /api/status
+            return self.changelog()
         if path == "/signin" and IDENTITY is not None:      # the form, before the gate (404 when sign-in is off)
             return self.reply(*signin.handle_get(IDENTITY, self.headers, url.query))
         if IDENTITY is not None and IDENTITY.signin and (path in SHARED_UI or path.startswith("/static/icons/")):
