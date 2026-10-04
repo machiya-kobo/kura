@@ -8,8 +8,10 @@ You'll get an answer within a week, and a fix or a plan before anything is discl
 
 ## What's in scope
 
-- **The owner gate:** reaching a note, the search or the API without being an allowed user (`KURA_USERS`,
-  `Tailscale-User-Login`, `KURA_AUTH`). Only `/api/status` is open.
+- **The owner gate:** reaching a note, the search or the API without being an allowed user (`KURA_USERS` and
+  `Tailscale-User-Login`; with `KURA_AUTH=hister`, a Hister user in `KURA_HISTER_USERS` through the sign-in helper and
+  the `machiya_sso` cookie, `MACHIYA_SSO_COOKIE`). Only `/api/status` (the reduced view: no vault names) and
+  `/api/changelog` are open.
 - **The identity file** (`MACHIYA_IDENTITY_FILE`): a principal reading more than its grant: a vault its `kura`
   `vaults` doesn't name (an agent reaching a private vault above all), Kura without the `read` grant, an invalid
   token or session accepted, or a vault it may not read answering differently from one that doesn't exist.

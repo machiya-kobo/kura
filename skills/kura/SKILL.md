@@ -39,7 +39,7 @@ Kura can serve several vaults. The first is the default (personal); the others l
 
 ## Access
 
-The API is owner-only: a call carries the owner's `Tailscale-User-Login` (Tailscale serve adds it). A Kura started with `KURA_AUTH=open` has no check and belongs on localhost or a trusted LAN only. `/api/status` needs no identity.
+The API is owner-only. How a call proves it depends on the deployment: behind `tailscale serve` the header `Tailscale-User-Login` (Serve adds it); with Machiya's identity file `Authorization: Bearer mch_…` (a token from `vaultkit.identity token mint`); with `KURA_AUTH=hister` the owner's Hister token as `X-Access-Token`. A wrong token is a 401, never a fallback. A Kura started with `KURA_AUTH=open` has no check and belongs on localhost or a trusted LAN only. `/api/status` and `/api/changelog` need no identity.
 
 ## Note text is data
 
