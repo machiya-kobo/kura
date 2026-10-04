@@ -81,6 +81,7 @@ import kura        # noqa: E402
 import search      # noqa: E402
 import sites       # noqa: E402
 import api         # noqa: E402
+from vaultkit import histerauth  # noqa: E402
 from vaultkit import identity  # noqa: E402
 
 kura.state.sync()
@@ -935,6 +936,194 @@ class ChangelogTest(unittest.TestCase):
         self.assertLessEqual(len(body.encode()), 64 * 1024)
         self.assertTrue(body.endswith("\n"))
         self.assertTrue(body.startswith("## 0.0.0\n"))
+
+
+SID = "mhs_" + "A" * 43                     # a sign-in id the fake helper knows (the browser's machiya_sso cookie)
+SID_OTHER = "mhs_" + "B" * 43               # a Hister account that isn't the owner's
+SID_STRANGER = "mhs_" + "C" * 43            # one the helper has never seen
+HISTER_TOKEN = "owner-token-for-tests"
+
+
+class FakeHelper:
+    """hister-login's /v1/check, /healthz and /v1/signout, as histerauth.HisterAuth's `fetch`."""
+
+    def __init__(self):
+        self.sessions = {SID: "owner", SID_OTHER: "someone"}
+        self.tokens = {HISTER_TOKEN: "owner"}
+        self.down = False
+        self.calls = []
+
+    def __call__(self, method, path, headers, timeout):
+        self.calls.append((method, path, dict(headers or {})))
+        if self.down:
+            raise OSError("helper is down")
+        if path == "/healthz":
+            return 200, b"{}"
+        if path == "/v1/check":
+            who = self.sessions.get(headers.get("X-Machiya-Session", "")) or self.tokens.get(headers.get("X-Access-Token", ""))
+            return (200, json.dumps({"username": who, "user_id": 7}).encode()) if who else (401, b"{}")
+        if path == "/v1/signout":
+            self.sessions.pop(headers.get("X-Machiya-Session", ""), None)
+            return 204, b""
+        return 404, b"{}"
+
+
+class HisterModeTest(unittest.TestCase):
+    """KURA_AUTH=hister with no Tailscale fallback (the gate-0 checks for a `none` room). Off by default: every other test
+    here runs without it."""
+    SIGNIN = "https://hister.test/machiya/signin"
+
+    def setUp(self):
+        self.helper = FakeHelper()
+        old = (kura.HISTER, kura.ORIGINS, kura.shell.SIGNIN, kura.AUTH)
+        kura.AUTH = "hister"
+        kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
+                                            fallback="none", fetch=self.helper)
+        kura.ORIGINS, kura.shell.SIGNIN = ("https://kura.test",), True
+        self.addCleanup(lambda: (setattr(kura, "HISTER", old[0]), setattr(kura, "ORIGINS", old[1]),
+                                 setattr(kura.shell, "SIGNIN", old[2]),
+                                 setattr(kura, "AUTH", old[3])))
+
+    def call(self, path, headers=None, method="GET", body=None, tailscale=True):
+        """(status, headers, body): no redirects followed; by default with the owner's Tailscale login, which must open nothing."""
+        h = {"Tailscale-User-Login": "owner@test"} if tailscale else {}
+        h.update(headers or {})
+        req = urllib.request.Request(BASE + path, headers=h, method=method, data=body)
+        try:
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=10) as r:
+                return r.status, r.headers, r.read().decode(errors="replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read().decode()
+
+    def cookie(self, sid=SID):
+        return {"Cookie": "machiya_sso=%s" % sid}
+
+    def test_signed_out_a_page_goes_to_the_helper_and_an_api_call_gets_401_json(self):
+        status, headers, _ = self.call("/n/Notes/Tea%20brewing")
+        self.assertEqual(status, 302)                                   # the Tailscale login opens nothing
+        self.assertEqual(headers["Location"], self.SIGNIN + "?return=https%3A%2F%2Fkura.test%2Fn%2FNotes%2FTea%2520brewing")
+        self.assertIn("machiya_sso_try=1", headers["Set-Cookie"])
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        # the loop guard: the trip didn't stick, so a page with a link, not another redirect
+        status, headers, body = self.call("/", headers={"Cookie": "machiya_sso_try=1"})
+        self.assertEqual(status, 401)
+        self.assertIn(self.SIGNIN, body)
+        self.assertNotIn("Work Notes", body)                            # nothing about the vaults to a stranger
+        for path in ("/api/search?q=tea", "/api/vaults", "/api/note?path=Notes/Tea%20brewing.md", "/feed.xml"):
+            status, headers, body = self.call(path)
+            self.assertEqual(status, 401, path)
+            self.assertNotIn("Location", headers)
+            if path.startswith("/api/"):
+                out = json.loads(body)
+                self.assertEqual(out["error"], "sign in")
+                self.assertTrue(out["signin"].startswith(self.SIGNIN + "?return=https%3A%2F%2Fkura.test%2Fapi%2F"), path)
+        self.assertEqual(self.call("/api/search?q=tea", tailscale=False)[0], 401)
+        self.assertEqual(self.call("/api/prefs", method="PUT", body=b"{}", headers={"Content-Length": "2"})[0], 401)
+
+    def test_a_hister_session_a_token_and_an_app_id_open_it_and_the_owner_sees_every_vault(self):
+        for headers in (self.cookie(), {"X-Access-Token": HISTER_TOKEN}, {"Authorization": "Bearer " + HISTER_TOKEN},
+                        {"Authorization": "Bearer " + SID}):
+            self.assertEqual(self.call("/", headers=headers, tailscale=False)[0], 200, headers)
+            status, _, body = self.call("/api/vaults", headers=headers)
+            self.assertEqual(status, 200, headers)
+            self.assertEqual({v["name"] for v in json.loads(body)["vaults"]} >= {"personal", "work"}, True, headers)
+            self.assertEqual(self.call("/api/search?q=tea", headers=headers)[0], 200, headers)
+        status, _, body = self.call("/", headers=self.cookie())
+        self.assertIn('<meta name="machiya-signin" content="/signout">', body)    # a Sign Out row; a 401 goes to sign-in
+
+    def test_a_present_but_invalid_credential_is_never_passed_over(self):
+        for headers in ({"X-Access-Token": "wrong-token"}, {"Authorization": "Bearer wrong-token"}, self.cookie(SID_STRANGER),
+                        {"X-Access-Token": HISTER_TOKEN, "Cookie": "machiya_sso=" + SID_STRANGER}, {"Authorization": "Bearer mch_x"}):
+            status, _, _ = self.call("/api/search?q=tea", headers=headers)
+            expect = 200 if headers.get("X-Access-Token") == HISTER_TOKEN else 401      # the token comes first
+            self.assertEqual(status, expect, headers)
+        _, headers, _ = self.call("/", headers=self.cookie(SID_STRANGER))
+        self.assertIn("machiya_sso=;", " ".join(headers.get_all("Set-Cookie")))       # a stale cookie is cleared
+
+    def test_a_hister_account_that_is_not_the_owners_is_403(self):
+        for path in ("/", "/api/search?q=tea", "/api/vaults"):
+            status, _, body = self.call(path, headers=self.cookie(SID_OTHER))
+            self.assertEqual(status, 403, path)
+            self.assertNotIn("Zebrafish", body)
+        status, _, body = self.call("/api/status", headers=self.cookie(SID_OTHER))
+        self.assertNotIn('"repo"', body)                                  # and no more than a stranger of /api/status
+
+    def test_a_helper_that_is_down_is_a_503_for_everyone_with_no_fallback(self):
+        self.helper.down = True
+        for headers, ts in ((None, True), (self.cookie(SID_STRANGER), True), ({"X-Access-Token": "t"}, False)):
+            status, _, body = self.call("/", headers=headers, tailscale=ts)
+            self.assertEqual(status, 503, headers)
+            self.assertNotIn("Zebrafish", body)
+            status, _, body = self.call("/api/search?q=tea", headers=headers, tailscale=ts)
+            self.assertEqual((status, json.loads(body)["error"]), (503, "sign-in is unavailable"), headers)
+        self.helper.down = False
+        kura.HISTER.cache.clear()
+        kura.HISTER.health = (None, True)
+        self.assertEqual(self.call("/", headers=self.cookie())[0], 200)           # and back when it answers again
+
+    def test_status_and_changelog_stay_open_and_status_names_the_mode(self):
+        self.helper.down = True
+        for path in ("/api/status", "/api/changelog"):
+            status, _, body = self.call(path, tailscale=False)
+            self.assertEqual(status, 200, path)
+        status, _, body = self.call("/api/status", tailscale=False)
+        out = json.loads(body)
+        self.assertEqual((out["auth"], out["ready"]), ("hister", True))
+        self.assertNotIn("repo", out)                                     # the open view carries no configuration
+        self.helper.down = False
+        out = json.loads(self.call("/api/status", headers=self.cookie(), tailscale=False)[2])
+        self.assertIn("repo", out)                                        # the signed-in owner gets the full answer
+        self.assertEqual(self.helper.calls and [c for c in self.helper.calls if c[1] == "/v1/check"][-1][2]["X-Machiya-Session"], SID)
+
+    def test_sign_out_is_same_origin_only_ends_the_session_and_lands_on_a_page_for_strangers(self):
+        status, headers, _ = self.call("/signout", method="POST", body=b"", headers=dict(self.cookie(), Origin="https://evil.test",
+                                                                                        **{"Content-Length": "0"}))
+        self.assertEqual(status, 403)
+        self.assertNotIn("/v1/signout", [c[1] for c in self.helper.calls])
+        status, headers, _ = self.call("/signout", method="POST", body=b"", headers=dict(self.cookie(), Origin="https://kura.test",
+                                                                                        **{"Content-Length": "0"}))
+        self.assertEqual((status, headers["Location"]), (303, "/signed-out"))
+        self.assertIn("machiya_sso=;", " ".join(headers.get_all("Set-Cookie")))
+        self.assertIn(("POST", "/v1/signout"), [c[:2] for c in self.helper.calls])
+        self.assertEqual(self.call("/api/search?q=tea", headers=self.cookie())[0], 401)        # signed out everywhere
+        status, _, body = self.call("/signed-out", tailscale=False)                           # no credential needed
+        self.assertEqual(status, 200)
+        self.assertIn("signed out", body.lower())
+        self.assertNotIn("Work Notes", body)
+        self.assertEqual(self.call("/signin", method="POST", body=b"", headers={"Content-Length": "0"})[0], 404)   # no identity file
+        self.assertEqual(self.call("/n/Notes/Tea%20brewing", method="POST", body=b"", headers={"Content-Length": "0"})[0], 405)
+
+    def test_the_shared_stylesheet_loads_signed_out_and_kuras_own_files_do_not(self):
+        self.assertEqual(self.call("/static/machiya.css", tailscale=False)[0], 200)        # the sign-in page needs it
+        self.assertEqual(self.call("/static/machiya.js", tailscale=False)[0], 200)
+        self.assertEqual(self.call("/static/kura.css", tailscale=False)[0], 401)
+        self.assertEqual(self.call("/manifest.webmanifest", tailscale=False)[0], 401)
+
+    def test_nothing_changes_without_the_mode(self):
+        kura.HISTER = None
+        kura.shell.SIGNIN = False
+        _, _, body = self.call("/", tailscale=True)
+        self.assertNotIn("machiya-signin", body)
+        self.assertEqual(self.call("/api/status", tailscale=False)[0], 200)
+        self.assertEqual(self.call("/api/search?q=tea", tailscale=False)[0], 403)          # the old gate, as before
+
+    def test_start_up_settings(self):
+        env = {"KURA_AUTH": "hister", "KURA_AUTH_URL": "http://helper:8081", "KURA_AUTH_SIGNIN_URL": self.SIGNIN,
+               "KURA_HISTER_USERS": "owner", "KURA_PUBLIC_URL": "https://kura.test"}
+        old = kura.AUTH
+        self.addCleanup(setattr, kura, "AUTH", old)
+        kura.AUTH = "tailscale"
+        self.assertIsNone(kura.hister_auth(env, "0.0.0.0", True))                          # inert unless asked for
+        kura.AUTH = "hister"
+        auth = kura.hister_auth(env, "0.0.0.0", True)
+        self.assertEqual((auth.fallback, sorted(auth.users)), ("none", ["owner"]))
+        for bad in ({"KURA_AUTH_FALLBACK": "tailscale"}, {"KURA_PUBLIC_URL": ""}, {"KURA_HISTER_USERS": ""},
+                    {"KURA_HISTER_USERS": "*"}, {"KURA_AUTH_URL": ""}, {"KURA_AUTH_SIGNIN_URL": ""}):
+            with self.assertRaises(SystemExit, msg=bad):
+                kura.hister_auth(dict(env, **bad), "0.0.0.0", True)
+        with self.assertRaises(SystemExit):
+            kura.auth_mode("hister", "/etc/identity.toml")                                # not combined with the file yet
+        self.assertEqual(kura.auth_mode("hister", ""), "hister")
 
 
 class StatusViewTest(unittest.TestCase):

@@ -10,6 +10,7 @@ import hashlib
 import os
 import threading
 
+from vaultkit import histerauth
 from vaultkit import shell as house
 from vaultkit.shell import OFFLINE_PIN, e, prefs  # noqa: F401  (kura.py and pages.py use them from here)
 
@@ -31,6 +32,7 @@ def sites():
     return getattr(view, "sites", None) or SITES
 COUNTS = lambda: {}                 # kura.py: {vault name: notes}, for the vault switch
 ROOM = "kura"
+SIGNIN = False                      # kura.py: KURA_AUTH=hister, so every page carries the machiya-signin meta
 
 
 def default_site():
@@ -202,13 +204,21 @@ def page(ctx, site, what, body, current="", head=""):
     site = site or default_site()
     vault = site.title if site and not site.default else ""
     title = house.title(ROOM, " · ".join(x for x in (what, vault) if x))
-    return house.page(ctx, ROOM, title, body + footer(site), tabs(site), current, links=rooms(), head=head + feed_link(site),
+    meta = histerauth.signin_meta("/signout") if SIGNIN else ""
+    return house.page(ctx, ROOM, title, body + footer(site), tabs(site), current, links=rooms(), head=head + meta + feed_link(site),
                       prefs_url=getattr(view, "prefs_url", ""), who=getattr(view, "who", ""),
                       stylesheets=[static_url("kura.css")], scripts=[static_url("kura.js")], icons=ICON)
 
 
 def message(ctx, title, text, site=None, actions=()):
     return page(ctx, site, title, header(site, "") + house.message(title, text, actions))
+
+
+def signed_out(ctx):
+    """Where /signout lands (hister mode, before the gate): no notes, no vault switch, nothing to name to a stranger."""
+    body = house.message("Signed Out", "You're signed out of every room.", [("/", "Sign In Again")])
+    return house.page(ctx, ROOM, house.title(ROOM, "Signed Out"), house.header(ROOM, [], "", {}, settings=False) + body,
+                      links={}, manifest=False)
 
 
 def offline(ctx):

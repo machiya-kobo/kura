@@ -68,6 +68,12 @@ of notes, if they aren't at the top). `tools/quickstart-test` runs these steps f
   `KURA_USERS` (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody). `/api/status` always answers, for monitoring, and so does `/api/changelog` (the first 64 KiB of [`app/CHANGELOG.md`](app/CHANGELOG.md), for the Machiya landing page's recent deploys).
 - **People, agents, sign-in or Shiori devices:** turn on Machiya's identity file with `python3 -m vaultkit.identity setup`,
   which prints the settings for each room. It's off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
+- **Hister's users as the sign-in:** `KURA_AUTH=hister` (off unless you set it; it doesn't combine with the identity file). Kura
+  asks Machiya's sign-in helper (hister-login) whether the caller is signed in to Hister: one sign-in for Hister and every room,
+  and signing out anywhere ends it. A signed-out page goes to the helper's sign-in, an API call gets `401 {"error": "sign in",
+  "signin": …}`, a Hister account that isn't in `KURA_HISTER_USERS` gets 403, and with the helper or Hister unreachable
+  every page and call is a 503: Kura has **no Tailscale fallback** and no grace period. `/api/status` and `/api/changelog`
+  stay open. See [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md#hister-sign-in-authhister).
 - Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`,
   `KURA_ACCEPT_APP_CAPS` and `KURA_PUBLIC_URL` (under Settings).
 
@@ -303,6 +309,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 | `KURA_POLL` | `60` | seconds between fetches (min 10) |
 | `KURA_USERS` | — | allowed `Tailscale-User-Login`s, comma-separated; `*` = anyone; unset = nobody. `/api/status` is always open, without the repo URL, the folder and error details (those need the owner gate) |
 | `KURA_AUTH` | `tailscale` | `tailscale` = the `KURA_USERS` allow-list; `open` = no identity check (a startup warning; the log names everyone `local`), only for localhost or a trusted LAN; it answers only to an IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS` in `Host` (DNS rebinding). Anything else refuses to start |
+| `KURA_AUTH=hister` | — | Hister's users are the sign-in (above). Needs `KURA_AUTH_URL` (the helper's internal address, `http://hister-login:8081`), `KURA_AUTH_SIGNIN_URL` (its public sign-in page), `KURA_HISTER_USERS` (the owner's Hister username, comma-separated, never `*`) and `KURA_PUBLIC_URL`; refuses to start without them or with an identity file. `KURA_AUTH_FALLBACK` may only be `none` (the default). `MACHIYA_COOKIE_DOMAIN` is the shared sign-in cookie's domain. Preferences are kept per Hister user, so they start empty once |
 | `MACHIYA_IDENTITY_FILE` | — | Machiya's identity file (vaultkit's `identity`; [Machiya's `docs/identity.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md)): people, agents and services with grants. Set, it replaces `KURA_USERS`: a principal needs the `kura` `read` grant, and reads only the vaults its grant allows (`"default"`, `"shared"` or names; agents get the default and shared vaults by default, never a private one unless named). A vault it may not read answers like one that doesn't exist. `/api/status`'s full view is the owner's. Mount the file's directory read-only |
 | `KURA_AUTH_HEADER` | — | with an identity file and `KURA_AUTH=header`: the trusted proxy's login header (`Remote-User`, …) |
 | `KURA_BIND_BEHIND_PROXY` | — | `1`: with an identity file, `KURA_AUTH=tailscale` or `header` may bind a non-loopback address because a proxy (the Tailscale sidecar) is the only way in. Without it Kura refuses to start on anything but 127.0.0.1 |

@@ -32,6 +32,7 @@ import push  # noqa: E402
 import search  # noqa: E402
 import shell  # noqa: E402
 from vaultkit import changelog  # noqa: E402
+from vaultkit import histerauth  # noqa: E402
 from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
@@ -52,10 +53,13 @@ USERS = set(filter(None, (u.strip() for u in os.environ.get("KURA_USERS", "").sp
 
 def auth_mode(value, identity_file=""):
     """KURA_AUTH: "tailscale" (the default: Tailscale-User-Login must be in KURA_USERS, or in the identity file),
-    "open" (no identity check, for localhost or a trusted LAN), or with an identity file "header" (a trusted proxy's
-    login header, KURA_AUTH_HEADER). Anything else refuses to start rather than guess."""
+    "open" (no identity check, for localhost or a trusted LAN), with an identity file "header" (a trusted proxy's
+    login header, KURA_AUTH_HEADER), or without one "hister" (Hister's users are the sign-in, through the hister-login
+    helper: vaultkit.histerauth). Anything else refuses to start rather than guess."""
     value = (value or "tailscale").strip().lower()
-    allowed = ("tailscale", "open", "header") if identity_file else ("tailscale", "open")
+    if value == "hister" and identity_file:
+        raise SystemExit("kura: KURA_AUTH=hister doesn't combine with MACHIYA_IDENTITY_FILE yet: unset one of them")
+    allowed = ("tailscale", "open", "header") if identity_file else ("tailscale", "open", "hister")
     if value not in allowed:
         raise SystemExit("kura: KURA_AUTH must be %s, not %r" % (" or ".join(allowed), value))
     return value
@@ -92,6 +96,27 @@ try:        # Machiya's identity file (MACHIYA_IDENTITY_FILE); None without one:
     IDENTITY = identity.load_for("kura", os.environ, bind=BIND, secure=not PUBLIC_URL.startswith("http://"))
 except identity.IdentityError as err:
     raise SystemExit("kura: identity: %s" % err)
+
+
+def hister_auth(env, bind, secure):
+    """KURA_AUTH=hister: the sign-in helper's check (vaultkit.histerauth), else None. Kura has NO Tailscale fallback and
+    no grace period: with the helper or Hister unavailable every page and call is a 503. KURA_AUTH_FALLBACK defaults
+    to (and may only be) "none"; KURA_PUBLIC_URL, KURA_AUTH_URL, KURA_AUTH_SIGNIN_URL and KURA_HISTER_USERS are
+    required (histerauth.load_for refuses to start without them)."""
+    if AUTH != "hister":
+        return None
+    env = dict(env)
+    if (env.get("KURA_AUTH_FALLBACK") or "none").strip().lower() != "none":
+        raise SystemExit("kura: KURA_AUTH_FALLBACK must be none: Kura has no Tailscale fallback in hister mode")
+    env["KURA_AUTH_FALLBACK"] = "none"
+    try:
+        return histerauth.load_for("kura", env, bind=bind, secure=secure)
+    except identity.IdentityError as err:
+        raise SystemExit("kura: hister sign-in: %s" % err)
+
+
+HISTER = hister_auth(os.environ, BIND, not PUBLIC_URL.startswith("http://"))
+shell.SIGNIN = HISTER is not None       # pages carry the machiya-signin meta (a Sign Out row, a 401 goes to sign-in)
 
 
 def host_name(value):
@@ -323,6 +348,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def actor(self):
         """Who is asking, for the log. Open mode: always "local", since nothing vouches for the header there."""
+        if HISTER is not None:
+            res = getattr(self, "_hres", None)          # only when the gate already asked: a log line never calls the helper
+            return (res.actor if res is not None else "") or "-"
         if IDENTITY is not None:
             who = self.who()
             return "%s(%s)" % (who.principal.name, who.principal.via) if who else "-"
@@ -336,7 +364,15 @@ class Handler(BaseHTTPRequestHandler):
             self._who = IDENTITY.resolve(self.headers, self.client_address[0] if self.client_address else "")
         return self._who
 
+    def hister(self):
+        """The Hister sign-in's answer for this request (histerauth.Result), worked out once."""
+        if getattr(self, "_hres", None) is None:
+            self._hres = HISTER.resolve(self.headers, is_page=self.is_page(), path=self.path)
+        return self._hres
+
     def allowed(self):
+        if HISTER is not None:
+            return bool(self.hister())
         if IDENTITY is not None:
             who = self.who()
             return bool(who) and who.principal.can("kura", "read")
@@ -347,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
     def owner(self):
         """The full /api/status (repo URL, folder, error texts): the owner only. Without an identity file, everyone the
         gate admits is the owner, as before."""
+        if HISTER is not None:      # a probe sends no credential: no need to ask the helper about nobody
+            if not any(self.headers.get(h) for h in ("Authorization", "X-Access-Token", "Cookie")):
+                return False
+            return bool(self.hister())
         if IDENTITY is not None:
             who = self.who()
             return bool(who) and who.principal.owner
@@ -355,6 +395,8 @@ class Handler(BaseHTTPRequestHandler):
     def principal(self):
         """Whose preferences these are: the identity file's principal, else (after the old gate) identity.ambient's
         one owner for Tailscale or open mode; None for nobody."""
+        if HISTER is not None:
+            return self.hister().principal
         if IDENTITY is not None:
             who = self.who()
             return who.principal if who else None
@@ -373,6 +415,8 @@ class Handler(BaseHTTPRequestHandler):
                 or (x.shared and "shared" in scope)]
 
     def refuse(self):
+        if HISTER is not None:      # signed out: a page goes to the helper's sign-in, an API call gets 401 JSON; 403; 503
+            return self.reply(*HISTER.respond(self.hister(), self.is_page(), self.ctx()))
         if IDENTITY is not None:
             who = self.who()
             status = who.status if not who else 403
@@ -414,6 +458,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in SIGNIN_LIMITS:
             self.close_connection = True
             return self.send(405, "Kura is read-only\n", "text/plain", headers=[("Allow", "GET, HEAD")])
+        if HISTER is not None and path == "/signout":
+            return self.hister_signout()
         if IDENTITY is None:
             self.close_connection = True
             return self.send(404, "not found\n", "text/plain")
@@ -426,6 +472,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/signout":
             return self.reply(*signin.handle_signout(IDENTITY, self.headers, origins=ORIGINS))
         return self.reply(*signin.handle_pair(IDENTITY, self.headers, body, client))
+
+    def hister_signout(self):
+        """POST /signout in hister mode (the Rooms menu's Sign Out): same-origin only; the helper ends the Hister session
+        and every id on it, this room clears its cookie, and the browser lands on /signed-out."""
+        if signin.read_body(self.headers, self.rfile, signin.MAX_FORM) is None:
+            return self.too_large()
+        if not signin.same_origin(self.headers, HISTER.secure, ORIGINS):
+            return self.send(403, "cross-site sign-out refused\n", "text/plain", headers=[NO_STORE])
+        ended, cookies = HISTER.signout(self.headers)
+        print("kura: sign-out%s" % ("" if ended else " (the sign-in service didn't answer; this room's cookie is cleared)"),
+              file=sys.stderr, flush=True)
+        return self.reply(303, [("Location", "/signed-out"), NO_STORE] + [("Set-Cookie", c) for c in cookies], b"")
 
     def do_PUT(self):
         """PUT /api/prefs only (a principal's own preferences, behind the gate); anything else: 405."""
@@ -455,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             out = signin.handle_prefs(store, self.principal(), self.command, self.headers, body,
                                       IDENTITY.secure if IDENTITY is not None else SECURE, origins=self.origins())
         status, headers, data = out
-        cookies = self.who().cookies if IDENTITY is not None else ()
+        cookies = self.hister().cookies if HISTER is not None else self.who().cookies if IDENTITY is not None else ()
         return self.reply(status, headers + [("Set-Cookie", c) for c in cookies], data)
 
     def origins(self):
@@ -489,7 +547,10 @@ class Handler(BaseHTTPRequestHandler):
         if ctype.startswith("text/html"):
             for k, v in shell.house.security_headers():    # a note's HTML is cleaned; this is the second wall
                 self.send_header(k, v)
-        for c in (self._who.cookies if getattr(self, "_who", None) is not None else ()):
+        res = getattr(self, "_hres", None)
+        if res is None:
+            res = getattr(self, "_who", None)
+        for c in (res.cookies if res is not None else ()):
             self.send_header("Set-Cookie", c)          # a renewed session, or a bad one cleared
         self.end_headers()
         if self.command != "HEAD":
@@ -542,7 +603,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.changelog()
         if path == "/signin" and IDENTITY is not None:      # the form, before the gate (404 when sign-in is off)
             return self.reply(*signin.handle_get(IDENTITY, self.headers, url.query))
-        if IDENTITY is not None and IDENTITY.signin and (path in SHARED_UI or path.startswith("/static/icons/")):
+        if HISTER is not None and path == "/signed-out":    # where a sign-out lands: no notes, no vault names
+            return self.send(200, shell.signed_out(self.ctx()), headers=[NO_STORE])
+        if (HISTER is not None or (IDENTITY is not None and IDENTITY.signin)) and (
+                path in SHARED_UI or path.startswith("/static/icons/")):
             return self.static(path[8:], query)          # the sign-in page's stylesheet and icons: vendored, no notes
         if not self.allowed():
             return self.refuse()
@@ -849,6 +913,7 @@ def main():
         VERSION, vaultkit_version(), repo,
         ", ".join("%s%s" % (x.name, " (default)" if x.default else "") for x in state.sites), POLL,
         "from %s" % IDENTITY.path if IDENTITY is not None else
+        "Hister sign-in (%s)" % ", ".join(sorted(HISTER.users)) if HISTER is not None else
         "anyone (KURA_AUTH=open)" if AUTH == "open" else ",".join(sorted(USERS)) or "NOBODY (set KURA_USERS)",
         ("to %s%s" % (HISTER_URL, " with a token" if HISTER_TOKEN_FILE else "")) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
         (", settings from %s" % ENV_FILE) if ENV_FILE else ""), flush=True)
