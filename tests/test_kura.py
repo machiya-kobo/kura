@@ -275,7 +275,7 @@ class ShellTest(unittest.TestCase):
     def test_settings(self):
         status, headers, body = fetch("/settings")
         self.assertEqual(status, 200)
-        for want in ("Appearance", "Preview Pane", 'data-set="previewPane" data-cookie', "Obsidian Vault",
+        for want in ("Display", "Appearance", "Preview Pane", 'data-set="previewPane" data-cookie', "Obsidian Vault",
                      "Offline Copies", "About"):
             self.assertIn(want, body)
 
@@ -576,6 +576,11 @@ class VaultsTest(unittest.TestCase):
                                  headers={"Sec-CH-Prefers-Color-Scheme": "light"})[2])
         self.assertEqual(night["background_color"], "#1a1b26")              # a theme chosen in Settings wins
         self.assertIn("Sec-CH-Prefers-Color-Scheme", fetch("/")[1]["Accept-CH"])
+        nord = json.loads(fetch("/manifest.webmanifest", cookie="palette=nord; theme=day")[2])
+        self.assertEqual(nord["background_color"], "#eceff4")              # the chosen theme's colours
+        body = fetch("/", cookie="palette=nord; theme=day")[2]
+        self.assertIn('class="theme-day palette-nord room-kura"', body)
+        self.assertIn('<option value="nord" selected>Nord</option>', fetch("/settings", cookie="palette=nord")[2])
 
     def test_push_refuses_a_work_vault(self):
         import push

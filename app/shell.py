@@ -90,7 +90,7 @@ def shell_urls():
             "/static/icons/kura.svg", "/static/icons/kura-192.png", "/offline"]
 
 
-def manifest(theme, headers=None):
+def manifest(theme, headers=None, palette=None):
     """theme: the request's Settings choice; headers: the request's (Sec-CH-Prefers-Color-Scheme picks System's
     colours: house.manifest_colors)."""
     return {
@@ -104,7 +104,7 @@ def manifest(theme, headers=None):
             {"src": "/static/icons/kura-512.png", "sizes": "512x512", "type": "image/png"},
             {"src": "/static/icons/kura-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
-        **house.manifest_colors(theme, headers),
+        **house.manifest_colors(theme, headers, palette or house.palettes.DEFAULT),
     }
 
 
