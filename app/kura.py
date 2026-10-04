@@ -11,6 +11,7 @@ machiya) put the settings in a file: KURA_ENV_FILE or --env-file PATH, read befo
 import ipaddress
 import json
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -92,6 +93,11 @@ def public_url(value):
 
 
 PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
+if AUTH == "tailscale" and not os.environ.get("MACHIYA_IDENTITY_FILE", "").strip():     # the KURA_USERS gate trusts the header
+    try:
+        identity.check_bind("tailscale", BIND, os.environ.get("KURA_BIND_BEHIND_PROXY", "").strip().lower() in ("1", "true", "yes", "on"))
+    except identity.IdentityError as err:
+        raise SystemExit("kura: %s" % str(err).replace("<ROOM>_BIND_BEHIND_PROXY", "KURA_BIND_BEHIND_PROXY"))
 try:        # Machiya's identity file (MACHIYA_IDENTITY_FILE); None without one: the KURA_USERS gate, as before
     IDENTITY = identity.load_for("kura", os.environ, bind=BIND, secure=not PUBLIC_URL.startswith("http://"))
 except identity.IdentityError as err:
@@ -163,6 +169,9 @@ SHARED_UI = ("/static/machiya.css", "/static/machiya.js", "/static/machiya-sw.js
 SIGNIN_LIMITS = {"/signin": signin.MAX_FORM, "/signout": signin.MAX_FORM, "/api/pair": signin.MAX_PAIR}
 shell.NIWA_URL = os.environ.get("KURA_NIWA_URL", "").rstrip("/")
 shell.KONBINI_URL = api.KONBINI_URL = os.environ.get("KURA_KONBINI_URL", "").rstrip("/")
+# A vault's SVG is a document that can carry script: served on its own (a link, "open image in new tab") it must not
+# run in Kura's origin, where it could read the API. In an <img> it never runs; this sandbox covers the direct request.
+SVG_CSP = ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
                ".webp": "image/webp", ".svg": "image/svg+xml"}
 STATIC_TYPES = {"kura.css": "text/css", "kura.js": "text/javascript", "mermaid.min.js": "text/javascript",
@@ -175,18 +184,20 @@ MAX_LIMIT = 100
 
 def changed_times(run, subdirs):
     """{subdir: {rel: unix time of the note's latest commit}}: the exact time for the API (vault.tended has only the
-    day). One `git log` for every vault of a checkout; a file counts for the longest matching subdir."""
+    day). One `git log` for every vault of a checkout; a file counts for the longest matching subdir. NUL-separated
+    and unquoted (`core.quotePath=false`), so a name like 町家.md or "café notes.md" keeps its date."""
     subdirs = list(subdirs)
-    out = run("log", "--format=@%at", "--name-only", "--", *[d or "." for d in subdirs])
+    out = run("-c", "core.quotePath=false", "log", "-z", "--format=%x01%at", "--name-only", "--", *[d or "." for d in subdirs])
     times = {d: {} for d in subdirs}
     current = None
-    for line in out.splitlines():
-        if line.startswith("@"):
-            current = int(line[1:]) if line[1:].isdigit() else None
-        elif line and current:
-            best = max((d for d in subdirs if not d or line.startswith(d + "/")), key=len, default=None)
+    for item in out.split("\0"):
+        item = item.lstrip("\n")                       # git puts a newline before each commit's first name
+        if item.startswith("\x01"):
+            current = int(item[1:]) if item[1:].isdigit() else None
+        elif item and current:
+            best = max((d for d in subdirs if not d or item.startswith(d + "/")), key=len, default=None)
             if best is not None:
-                times[best].setdefault(line[len(best) + 1:] if best else line, current)
+                times[best].setdefault(item[len(best) + 1:] if best else item, current)
     return times
 
 
@@ -342,21 +353,30 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "kura/" + VERSION
 
     def log_message(self, fmt, *args):
-        if self.path == "/api/status":              # the healthcheck and probes, every minute
+        """One log line: who and the request without its query (a private vault's search terms stay out of the log).
+        Works for a request that never parsed (a garbage request line has no path or headers)."""
+        if getattr(self, "path", "") == "/api/status":              # the healthcheck and probes, every minute
             return
-        sys.stderr.write("%s %s\n" % (self.actor() or "-", fmt % args))
+        try:
+            line = fmt % args
+        except (TypeError, ValueError):
+            line = str(fmt)
+        sys.stderr.write("%s %s\n" % (self.actor() or "-", re.sub(r"\?\S*", "", line)[:300]))
 
     def actor(self):
         """Who is asking, for the log. Open mode: always "local", since nothing vouches for the header there."""
         if HISTER is not None:
             res = getattr(self, "_hres", None)          # only when the gate already asked: a log line never calls the helper
             return (res.actor if res is not None else "") or "-"
+        headers = getattr(self, "headers", None)
+        if headers is None:                             # the request line itself was refused: nobody was identified
+            return "-"
         if IDENTITY is not None:
             who = self.who()
             return "%s(%s)" % (who.principal.name, who.principal.via) if who else "-"
         if AUTH == "open":
             return "local"
-        return self.headers.get("Tailscale-User-Login", "")
+        return headers.get("Tailscale-User-Login", "")
 
     def who(self):
         """The identity file's answer for this request (vaultkit.identity), worked out once."""
@@ -573,9 +593,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
-    def send_json(self, status, obj):
+    def send_json(self, status, obj, cache="no-store"):
+        """JSON answers are never kept by a browser or a client's URL cache (a private vault's notes, an Archive/ note, a
+        search): no-store, except what is public by design (/api/status, /api/offline's list) which may be revalidated."""
         self.send(status, json.dumps(obj, ensure_ascii=False, indent=1), "application/json",
-                  headers=[("Cache-Control", "no-cache")])
+                  headers=[("Cache-Control", cache)])
 
     def do_HEAD(self):
         self.do_GET()
@@ -617,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path, query = unquote(url.path), parse_qs(url.query)
         if path == "/api/status":
-            return self.send_json(200, self.status(self.owner()))
+            return self.send_json(200, self.status(self.owner()), cache="no-cache")
         if path == "/api/changelog":                # the landing page's "recent deploys": open, like /api/status
             return self.changelog()
         if path == "/signin" and IDENTITY is not None:      # the form, before the gate (404 when sign-in is off)
@@ -769,7 +791,8 @@ class Handler(BaseHTTPRequestHandler):
             if full and ctype:
                 rel = os.path.relpath(full, g.root).replace(os.sep, "/")
                 with open(full, "rb") as f:
-                    self.send(200, f.read(), ctype, headers=self.hold(g, rel) or [("Cache-Control", "max-age=86400")])
+                    self.send(200, f.read(), ctype, headers=(self.hold(g, rel) or [("Cache-Control", "max-age=86400")])
+                              + [("X-Content-Type-Options", "nosniff")] + ([SVG_CSP] if ctype == "image/svg+xml" else []))
             else:
                 self.send(404, "not found\n", "text/plain", headers=self.hold(g))
         else:
@@ -827,7 +850,8 @@ class Handler(BaseHTTPRequestHandler):
                 for x in self.sites]})
         if path == "/api/offline":      # the service worker's pins: notes with offline: true, fetched ahead (never private)
             return self.send_json(200, {"urls": [g.prefix + "/n/" + quote(n.slug) for g in self.sites
-                                                 if not g.private and g.ready for n in pages.visible(g) if pages.pinned(g, n)]})
+                                                 if not g.private and g.ready for n in pages.visible(g) if pages.pinned(g, n)]},
+                                  cache="no-cache")
         try:
             asked = self.vault_sites(query, one=path in ("/api/note", "/api/tags", "/api/folders", "/api/links"))
         except ValueError as e:

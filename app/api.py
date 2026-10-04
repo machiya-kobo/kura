@@ -12,6 +12,7 @@ Links". The default vault and shared vaults: a private-vault note has none, so n
 import html
 import os
 import re
+import threading
 from email.utils import formatdate
 from html.parser import HTMLParser
 from urllib.parse import quote, urljoin, urlsplit
@@ -96,6 +97,7 @@ def trim_url(url):
     return url
 _links = {}                         # {(id of the vault, note path): [links]}, valid for one commit of that vault
 _links_head = {}
+_links_lock = threading.Lock()
 
 
 class LinkFinder(HTMLParser):
@@ -143,17 +145,18 @@ def note_links(g, n):
     [] for a private vault."""
     if g.private:
         return []
-    if _links_head.get(id(g)) != g.head:
-        for key in [k for k in _links if k[0] == id(g)]:
-            del _links[key]
-        _links_head[id(g)] = g.head
-    key = (id(g), n.rel)
-    if key not in _links:
-        finder = LinkFinder()
-        finder.feed(g.render(n, "", False, mode="all", prefix=g.prefix))
-        finder.close()
-        _links[key] = finder.found
-    return _links[key]
+    with _links_lock:           # concurrent requests right after a sync would change the dicts under each other
+        if _links_head.get(id(g)) != g.head:
+            for key in [k for k in _links if k[0] == id(g)]:
+                del _links[key]
+            _links_head[id(g)] = g.head
+        key = (id(g), n.rel)
+        if key not in _links:
+            finder = LinkFinder()
+            finder.feed(g.render(n, "", False, mode="all", prefix=g.prefix))
+            finder.close()
+            _links[key] = finder.found
+        return _links[key]
 
 
 def own_hosts(base=""):

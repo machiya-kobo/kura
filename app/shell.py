@@ -28,8 +28,9 @@ view = threading.local()            # kura.py sets, per request: view.sites (the
 
 
 def sites():
-    """The vaults the current request may see (its identity's grant), else all of them."""
-    return getattr(view, "sites", None) or SITES
+    """The vaults the current request may see (its identity's grant: possibly none), else all of them (nothing set)."""
+    seen = getattr(view, "sites", None)
+    return SITES if seen is None else seen
 COUNTS = lambda: {}                 # kura.py: {vault name: notes}, for the vault switch
 ROOM = "kura"
 house.APP_PREFS = {"previewPane": {"type": "bool", "cookie": True}}      # follows the person (docs/contracts/prefs.md)

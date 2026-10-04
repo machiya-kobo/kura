@@ -66,13 +66,16 @@ def make_vault():
     for rel in ("personal/pic.png", "work/wpic.png", "team/tpic.png"):
         with open(os.path.join(REPO, rel), "wb") as f:
             f.write(b"\x89PNG")
+    for rel in ("personal/evil.svg", "work/wevil.svg"):         # a vault's SVG can carry script
+        with open(os.path.join(REPO, rel), "w") as f:
+            f.write('<svg xmlns="http://www.w3.org/2000/svg"><script>fetch("/api/vaults")</script></svg>')
     sh("git", "init", "-q", "-b", "main", cwd=REPO)
     sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A", cwd=REPO)
     sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=REPO)
 
 
 make_vault()
-os.environ.update(KURA_REPO_DIR=REPO, KURA_REPO_URL="", KURA_USERS="owner@test", KURA_PORT="0",
+os.environ.update(KURA_REPO_DIR=REPO, KURA_REPO_URL="", KURA_USERS="owner@test", KURA_PORT="0", KURA_BIND="127.0.0.1",
                   KURA_PUBLIC_URL="https://kura.test", KURA_KONBINI_URL="https://konbini.test", KURA_POLL="3600",
                   KURA_VAULTS="personal=%s#personal, work:Work Notes=%s#work" % (REPO, REPO))
 sys.path.insert(0, os.path.join(HERE, "..", "app"))
@@ -369,7 +372,7 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(kura.auth_mode(" Open "), "open")
         with self.assertRaises(SystemExit):
             kura.auth_mode("opne")                                    # a typo never opens the notes
-        self.assertEqual(kura.BIND, "0.0.0.0")
+        self.assertEqual(kura.BIND, "127.0.0.1")                      # this test server's own (see the environment above)
         self.assertEqual(json.loads(get("/api/status", user=None)[1])["auth"], "tailscale")
 
     def test_redirects_stay_on_this_host(self):
@@ -451,12 +454,26 @@ class AuthTest(unittest.TestCase):
         return subprocess.run([sys.executable, "-c", code], cwd=os.path.join(HERE, "..", "app"), env=full,
                               capture_output=True, text=True, timeout=60)
 
+    def test_the_tailscale_gate_refuses_a_public_bind_like_the_identity_modes(self):
+        """The Tailscale-User-Login header is trusted, so anyone who can reach the port could forge it: the old gate
+        refuses to start on a non-loopback bind unless a proxy is the only way in."""
+        r = self.run_kura({"KURA_USERS": "owner@test"})                       # no KURA_BIND: 0.0.0.0
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("KURA_BIND_BEHIND_PROXY", r.stderr)
+        self.assertNotIn("<ROOM>", r.stderr)
+        r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "0.0.0.0", "KURA_BIND_BEHIND_PROXY": "1"})
+        self.assertEqual((r.returncode, r.stdout.split()[:2]), (0, ["tailscale", "0.0.0.0"]), r.stderr)
+        r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "127.0.0.1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_kura({"KURA_AUTH": "open"})                              # open mode has its own Host allow-list
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_defaults_name_no_owner(self):
         """Nothing is set: the vault is the repo root, nobody is allowed, and the one vault is called notes."""
-        r = self.run_kura({}, "import kura, sites; print(repr(kura.SUBDIR), sorted(kura.USERS), sites.DEFAULT_NAME)")
+        r = self.run_kura({"KURA_BIND": "127.0.0.1"}, "import kura, sites; print(repr(kura.SUBDIR), sorted(kura.USERS), sites.DEFAULT_NAME)")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "'' [] notes")
-        r = self.run_kura({"KURA_REPO_SUBDIR": "/personal/"}, "import kura; print(repr(kura.SUBDIR))")
+        r = self.run_kura({"KURA_REPO_SUBDIR": "/personal/", "KURA_BIND": "127.0.0.1"}, "import kura; print(repr(kura.SUBDIR))")
         self.assertEqual(r.stdout.strip(), "'personal'")                  # an explicit value still wins, slashes trimmed
 
     def test_env_file(self):
@@ -899,6 +916,110 @@ class ExternalLinksTest(unittest.TestCase):
             self.assertNotIn("shiori://", page)                           # a work note has none, whatever the setting
         finally:
             api.SHIORI_LINKS = False
+
+
+class SweepTest(unittest.TestCase):
+    """Fixes from the 2026-10 security sweep (KURA-1, 3, 5, 6, 7, 8, 11)."""
+
+    def test_a_vault_svg_never_runs_script_in_kuras_origin(self):             # KURA-1
+        for path in ("/a/evil.svg", "/v/work/a/wevil.svg"):
+            status, h, body = fetch(path)
+            self.assertEqual(status, 200, path)
+            self.assertEqual(h["Content-Type"], "image/svg+xml", path)
+            self.assertEqual(h["Content-Security-Policy"], "default-src 'none'; style-src 'unsafe-inline'; sandbox", path)
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff", path)
+        self.assertEqual(fetch("/a/pic.png")[1]["X-Content-Type-Options"], "nosniff")
+        self.assertNotIn("Content-Security-Policy", fetch("/a/pic.png")[1])
+        self.assertEqual(fetch("/static/icons/kura.svg")[0], 200)                 # Kura's own icons stay as they are
+
+    def test_api_answers_are_never_stored_except_what_is_public_by_design(self):    # KURA-3
+        for path in ("/api/note?path=Notes/Tea%20brewing.md", "/api/note?path=Runbooks/Zebrafish%20deploy.md&vault=work",
+                     "/api/search?q=zebrafish&vault=all", "/api/search?q=tea", "/api/notes?paths=Lantern.md", "/api/recent?vault=all",
+                     "/api/tags", "/api/folders", "/api/vaults", "/api/links?folder=Notes", "/api/search?q=nothing-here", "/api/nope"):
+            status, h, _ = fetch(path)
+            self.assertEqual(h["Cache-Control"], "no-store", (path, status))
+        for path in ("/api/status", "/api/offline"):
+            self.assertEqual(fetch(path)[1]["Cache-Control"], "no-cache", path)
+        self.assertEqual(fetch("/api/changelog")[1]["Cache-Control"], "no-cache")
+
+    def test_non_ascii_file_names_keep_their_change_dates(self):               # KURA-5
+        import vaultkit
+        repo = os.path.join(TMP, "quotepath")
+        os.makedirs(os.path.join(repo, "v"), exist_ok=True)
+        sh("git", "init", "-q", "-b", "main", cwd=repo)
+        for name in ("町家 notes.md", "café notes.md", "plain.md", 'quo"te.md'):
+            with open(os.path.join(repo, "v", name), "w") as f:
+                f.write(name)
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A", cwd=repo)
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x", cwd=repo)
+        with open(os.path.join(repo, "v", "plain.md"), "w") as f:
+            f.write("changed")
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "y", cwd=repo)
+        times = kura.changed_times(vaultkit.Git(repo).run, ["v", ""])
+        self.assertEqual(sorted(times["v"]), sorted(["café notes.md", "町家 notes.md", "plain.md", 'quo"te.md']))
+        self.assertTrue(all(isinstance(t, int) and t > 0 for t in times["v"].values()))
+        self.assertEqual(sorted(times[""]), [])                                    # "v/…" belongs to the longest subdir
+
+    def test_a_request_that_never_parsed_gets_an_answer_and_no_traceback(self):   # KURA-6
+        import socket
+        host, port = SERVER.server_address
+        log = io.StringIO()
+        with contextlib.redirect_stderr(log):
+            for raw in (b"\x00\x01GARBAGE\r\n\r\n", b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n"):
+                with socket.create_connection((host, port), timeout=5) as c:
+                    c.sendall(raw)
+                    reply = c.recv(200)
+                self.assertTrue(reply, raw[:12])                                   # an answer, not a dropped connection
+                if reply.startswith(b"HTTP/"):
+                    self.assertIn(reply.split()[1], (b"400", b"414"), raw[:12])
+                else:
+                    self.assertIn(b"Error code: 400", reply)                         # a one-word line is read as HTTP/0.9
+        self.assertNotIn("Traceback", log.getvalue())
+        self.assertNotIn("AttributeError", log.getvalue())
+        self.assertEqual(get("/api/status", user=None)[0], 200)                    # and the server still serves
+
+    def test_the_link_cache_survives_concurrent_requests(self):                # KURA-7
+        errors = []
+
+        def hammer():
+            try:
+                for i in range(40):
+                    g = kura.state.vault
+                    for n in kura.pages.visible(g):
+                        api.note_links(g, n)
+                    api._links_head[id(g)] = "stale-%d" % i                    # a sync changing the head under the others
+            except Exception as e:                                             # noqa: BLE001
+                errors.append(repr(e))
+        threads = [threading.Thread(target=hammer) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+
+    def test_an_empty_grant_shows_no_vault_but_nothing_set_shows_all(self):    # KURA-8
+        old = getattr(kura.shell.view, "sites", None)
+        try:
+            kura.shell.view.sites = []
+            self.assertEqual(kura.shell.sites(), [])
+            kura.shell.view.sites = None
+            self.assertEqual(kura.shell.sites(), kura.shell.SITES)
+            del kura.shell.view.sites
+            self.assertEqual(kura.shell.sites(), kura.shell.SITES)
+        finally:
+            if old is not None:
+                kura.shell.view.sites = old
+
+    def test_the_access_log_has_no_query_string(self):                         # KURA-11
+        log = io.StringIO()
+        with contextlib.redirect_stderr(log):
+            get("/search?q=zebrafish-secret-term&vaults=all")
+            get("/v/work/search?q=another-secret")
+            get("/api/search?q=third-secret&vault=work")
+        out = log.getvalue()
+        self.assertIn("GET /search", out)
+        for term in ("secret", "zebrafish", "vaults=all", "vault=work"):
+            self.assertNotIn(term, out)
 
 
 class ChangelogTest(unittest.TestCase):
