@@ -1,11 +1,12 @@
 # Kura (machiya-kobo/kura): stdlib Python + markdown + pyyaml + git. Runs as uid 1000.
 FROM public.ecr.aws/docker/library/python:3.13-slim
 
-# markdown >= 3.7: the BSD packages ship 3.7-3.10. pyyaml stays pinned.
+# markdown and pyyaml are pinned to what the tests ran on (a native install may use markdown >= 3.7: the BSD packages
+# ship 3.7-3.10).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir "markdown>=3.7" pyyaml==6.0.3
+ && pip install --no-cache-dir markdown==3.11 pyyaml==6.0.3
 
 # git refuses some operations for a uid without a passwd entry.
 RUN useradd --uid 1000 --home-dir /data --no-create-home --shell /usr/sbin/nologin kura
