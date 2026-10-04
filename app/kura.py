@@ -509,7 +509,15 @@ class Handler(BaseHTTPRequestHandler):
         return self.prefs(body)
 
     def prefs(self, body=b""):
-        """GET/PUT /api/prefs as the resolved principal; a renewed session cookie rides along."""
+        """GET/PUT /api/prefs as the resolved principal; a renewed session cookie rides along. In hister mode with the
+        helper they are the account's (vaultkit 0.21, docs/contracts/prefs.md): forwarded with the caller's own
+        credential. Otherwise (no helper, or not hister mode) this room's own store answers."""
+        if HISTER is not None:
+            fwd = HISTER.forward_prefs(self.hister(), "GET" if self.command == "HEAD" else self.command, self.headers,
+                                       body, self.origins())
+            if fwd is not None:
+                status, headers, data = fwd
+                return self.reply(status, headers + [("Set-Cookie", c) for c in self.hister().cookies], data)
         try:
             store = prefs_store()
         except (OSError, sqlite3.Error) as err:
@@ -539,7 +547,10 @@ class Handler(BaseHTTPRequestHandler):
         return PUBLIC_URL or "https://%s" % (self.headers.get("Host") or "localhost")
 
     def ctx(self):
-        return shell.prefs(self.headers.get("Cookie"))     # theme, text size, previewPane (machiya.js writes them)
+        """theme, text size, previewPane (machiya.js writes them as cookies). A browser with none yet is drawn in the
+        signed-in account's settings (histerauth's check carries them)."""
+        res = getattr(self, "_hres", None) if HISTER is not None else None
+        return shell.prefs(self.headers.get("Cookie"), account=res.prefs if res else None)
 
     def send(self, status, body, ctype="text/html", headers=()):
         data = body.encode("utf-8") if isinstance(body, str) else body
@@ -647,9 +658,16 @@ class Handler(BaseHTTPRequestHandler):
                                 % (theme, shell.house.COOKIE_DOMAIN)))
             return self.send(302, "", "text/plain", headers=[("Location", local_path(ref.path))] + cookies)
         if path == "/settings":
-            who = self.who() if IDENTITY is not None else None
-            account = who.principal.name if who and who.principal.via == "session" else ""
-            return self.send(200, shell.settings(ctx, VERSION, footer_status()["text"], vaultkit_version(), account),
+            p = self.principal()
+            if HISTER is not None:
+                prefs_state = HISTER.prefs_state(self.hister())
+                account = p.name if p is not None and p.via == "hister" else ""
+            else:
+                prefs_state = "room" if shell.view.prefs_url else "standalone"
+                who = self.who() if IDENTITY is not None else None
+                account = who.principal.name if who and who.principal.via == "session" else ""
+            return self.send(200, shell.settings(ctx, VERSION, footer_status()["text"], vaultkit_version(), account,
+                                                 prefs_state, account),
                              headers=[("Cache-Control", "no-cache")])
         if not state.default.ready:
             if path.startswith("/api/") or path == "/feed.xml":

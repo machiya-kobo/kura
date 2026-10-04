@@ -32,6 +32,7 @@ def sites():
     return getattr(view, "sites", None) or SITES
 COUNTS = lambda: {}                 # kura.py: {vault name: notes}, for the vault switch
 ROOM = "kura"
+house.APP_PREFS = {"previewPane": {"type": "bool", "cookie": True}}      # follows the person (docs/contracts/prefs.md)
 SIGNIN = False                      # kura.py: KURA_AUTH=hister, so every page carries the machiya-signin meta
 
 
@@ -233,21 +234,24 @@ def preview_pane(ctx):
     return (getattr(ctx, "extra", {}) or {}).get("previewPane") != "false"
 
 
-def settings(ctx, version, status_text, vaultkit, account=""):
-    """`account`: the principal's name when this request came with a sign-in session; it gets a Sign Out button."""
-    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True),
-                           house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault"),
-                           house.offline_row()],
+def settings(ctx, version, status_text, vaultkit, account="", prefs_state="standalone", who=""):
+    """vaultkit's Settings order (docs/ui.md): Shared, Kura's Reading, This Device, Account, About. `prefs_state`: where
+    the Shared choices are kept (histerauth.prefs_state, "room" for Kura's own store, else "standalone"); `who`: the
+    signed-in name for its line. `account`: the principal's name when this request came with a sign-in session; it gets
+    a Sign Out button."""
+    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True)],
                "Preview Pane: on wide screens, a note picked in a list opens beside it. Off, notes open on their own "
-               "page. Obsidian Vault: the vault's name in Obsidian on this device. Set, every note gets Edit in "
-               "Obsidian; empty, no link. Offline Copies: the notes you read last (up to 200) stay on this device for "
-               "reading without the network, and notes marked offline: true stay for good. Notes under Archive/ are "
-               "never kept.")
+               "page. Follows you to your other devices when signed in.")
+    device = house.device_section(
+        ctx, [house.offline_row(), house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault")],
+        "Obsidian Vault: the vault's name in Obsidian on this device. Set, every note gets Edit in Obsidian; empty, "
+        "no link. Offline Copies: the notes you read last (up to 200) stay on this device for reading without the "
+        "network, and notes marked offline: true stay for good. Notes under Archive/ are never kept.")
     signed_in = None
     if account:         # a plain form: sign-out is a same-origin POST (vaultkit.signin), and works without JavaScript
         signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
                                  '<button type="submit">Sign Out</button></form>' % e(account)],
                      "Signs this browser out. With one sign-in for every room (MACHIYA_COOKIE_DOMAIN), it signs out of them all.")
-    sections = [house.appearance_section(ctx, synced=bool(getattr(view, "prefs_url", ""))), reading, signed_in, house.apps_section(ROOM, rooms(), {}),
+    sections = [house.shared_section(ctx, ROOM, rooms(), prefs_state, who), reading, device, signed_in,
                 house.about_section(ROOM, version, status_text, vaultkit)]
     return page(ctx, None, "Settings", header(None, "", "Settings") + house.settings_page(sections, ROOM))

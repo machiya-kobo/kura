@@ -311,9 +311,16 @@ class ShellTest(unittest.TestCase):
     def test_settings(self):
         status, headers, body = fetch("/settings")
         self.assertEqual(status, 200)
-        for want in ("Display", "Appearance", "Preview Pane", 'data-set="previewPane" data-cookie', "Obsidian Vault",
-                     "Offline Copies", "About"):
+        sections = re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body)
+        self.assertEqual(sections, ["Shared", "Reading", "This Device", "About"])      # vaultkit's order (docs/ui.md)
+        for want in ("Theme", "Appearance", "Text Size", "Preview Pane", 'data-set="previewPane" data-cookie',
+                     "Use This Device&#x27;s Size", "Obsidian Vault", "Offline Copies", "Follows you to your other devices when signed in.",
+                     'data-prefs-state="room"', 'name="machiya-app-prefs"', "kura.preview_pane"):
             self.assertIn(want, body)
+        self.assertNotIn("<h2 id=\"display\">", body)
+        reading = body[body.index('id="reading"'):body.index('id="this-device"')]
+        self.assertNotIn("Obsidian Vault", reading)                                 # a device row now
+        self.assertNotIn("Offline Copies", reading)
 
     def test_service_worker(self):
         _, headers, body = fetch("/sw.js")
@@ -952,16 +959,31 @@ class FakeHelper:
         self.tokens = {HISTER_TOKEN: "owner"}
         self.down = False
         self.calls = []
+        self.rev, self.prefs = 3, {"theme": "night", "palette": "nord", "text_size": "large"}   # the owner's account
 
-    def __call__(self, method, path, headers, timeout):
+    def __call__(self, method, path, headers, timeout, data=None):
         self.calls.append((method, path, dict(headers or {})))
         if self.down:
             raise OSError("helper is down")
         if path == "/healthz":
             return 200, b"{}"
+        who = self.sessions.get(headers.get("X-Machiya-Session", "")) or self.tokens.get(headers.get("X-Access-Token", ""))
         if path == "/v1/check":
-            who = self.sessions.get(headers.get("X-Machiya-Session", "")) or self.tokens.get(headers.get("X-Access-Token", ""))
-            return (200, json.dumps({"username": who, "user_id": 7}).encode()) if who else (401, b"{}")
+            return (200, json.dumps({"username": who, "user_id": 7, "prefs": self.prefs if who == "owner" else {}}).encode()) \
+                if who else (401, b"{}")
+        if path == "/v1/prefs":
+            if not who:
+                return 401, b"{}"
+            if method == "PUT":
+                for k, v in json.loads(data)["prefs"].items():
+                    if v is None:
+                        self.prefs.pop(k, None)
+                    else:
+                        self.prefs[k] = v
+                self.rev += 1
+            elif headers.get("If-None-Match") == '"%d"' % self.rev:
+                return 304, b""
+            return 200, json.dumps({"v": 1, "rev": self.rev, "prefs": self.prefs, "updated": {k: 1 for k in self.prefs}}).encode()
         if path == "/v1/signout":
             self.sessions.pop(headers.get("X-Machiya-Session", ""), None)
             return 204, b""
@@ -1052,6 +1074,55 @@ class HisterModeTest(unittest.TestCase):
                 self.assertNotIn("Zebrafish", body)
         status, h, _ = self.call("/n/Notes/Tea%20brewing", headers={"Cookie": "machiya_sso=" + SID_STRANGER})
         self.assertEqual(status, 302)                                      # a browser's stale cookie still goes to sign-in
+
+    def test_preferences_are_the_accounts_forwarded_with_the_callers_own_credential(self):
+        status, h, body = self.call("/api/prefs", headers=self.cookie(), tailscale=False)
+        self.assertEqual(status, 200)
+        out = json.loads(body)
+        self.assertEqual((out["v"], out["rev"], out["prefs"]["palette"]), (1, 3, "nord"))
+        self.assertEqual(h["Cache-Control"], "no-store")
+        sent = [c for c in self.helper.calls if c[1] == "/v1/prefs"][-1]
+        self.assertEqual(sent[2]["X-Machiya-Session"], SID)                      # the caller's credential, never a user id
+        self.assertNotIn("user", " ".join(k.lower() for k in sent[2] if k != "X-Machiya-Session"))
+        self.assertEqual(self.call("/api/prefs", headers=dict(self.cookie(), **{"If-None-Match": h["ETag"]}))[0], 304)
+        put = json.dumps({"prefs": {"text_size": "xlarge"}}).encode()
+        base = {"Content-Type": "application/json", "Content-Length": str(len(put))}
+        self.assertEqual(self.call("/api/prefs", method="PUT", body=put, headers=dict(base, **self.cookie()))[0], 403)   # no Origin
+        self.assertEqual(self.call("/api/prefs", method="PUT", body=put,
+                                   headers=dict(base, Origin="https://evil.test", **self.cookie()))[0], 403)
+        self.assertEqual(self.helper.prefs["text_size"], "large")
+        status, _, body = self.call("/api/prefs", method="PUT", body=put, headers=dict(base, Origin="https://kura.test", **self.cookie()))
+        self.assertEqual((status, json.loads(body)["prefs"]["text_size"], self.helper.prefs["text_size"]), (200, "xlarge", "xlarge"))
+        put2 = json.dumps({"prefs": {"theme": "day"}}).encode()
+        status, _, body = self.call("/api/prefs", method="PUT", body=put2,
+                                    headers={"Content-Type": "application/json", "Content-Length": str(len(put2)),
+                                             "X-Access-Token": HISTER_TOKEN})
+        self.assertEqual((status, self.helper.prefs["theme"]), (200, "day"))          # a client with the token needs no Origin
+        self.assertEqual([c for c in self.helper.calls if c[1] == "/v1/prefs"][-1][2]["X-Access-Token"], HISTER_TOKEN)
+        self.assertEqual(self.call("/api/prefs", tailscale=True)[0], 401)             # signed out: no account for a Tailscale login
+        self.assertEqual(self.call("/api/prefs", headers=self.cookie(SID_OTHER))[0], 403)
+        self.helper.down = True
+        kura.HISTER.cache.clear()
+        self.assertEqual(self.call("/api/prefs", headers=self.cookie())[0], 503)
+        self.helper.down = False
+
+    def test_a_fresh_browser_is_drawn_in_the_accounts_settings_and_a_cookie_wins(self):
+        _, _, body = self.call("/", headers=self.cookie(), tailscale=False)
+        self.assertRegex(body, r'<body class="[^"]*theme-night')
+        self.assertIn('data-text="large"', body)
+        _, _, body = self.call("/", headers=dict(self.cookie(), Cookie="machiya_sso=%s; machiya_theme=day; machiya_textSize=small" % SID))
+        self.assertRegex(body, r'<body class="[^"]*theme-day')
+        self.assertIn('data-text="small"', body)
+
+    def test_settings_name_the_account_and_have_a_sign_out(self):
+        _, _, body = self.call("/settings", headers=self.cookie(), tailscale=False)
+        self.assertIn('data-prefs-state="account"', body)
+        self.assertIn("Signed in as owner. Saved to your account.", body)
+        self.assertIn('<form class="item" method="post" action="/signout"><span>Signed in as owner</span>', body)
+        self.assertEqual(re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body), ["Shared", "Reading", "This Device", "Account", "About"])
+        _, _, body = self.call("/settings", headers={"X-Access-Token": HISTER_TOKEN}, tailscale=False)
+        self.assertIn('data-prefs-state="account"', body)
+        self.assertNotIn("action=\"/signout\"", body)                                  # a token has nothing to sign out of
 
     def test_the_open_status_names_no_vault(self):
         for headers, ts in ((None, False), (None, True), (self.cookie(SID_OTHER), False), ({"X-Access-Token": "nope"}, False)):
@@ -1930,7 +2001,8 @@ class SignInTest(unittest.TestCase):
 
     def test_prefs(self):
         st, h, body = as_("/api/prefs", Tailscale_User_Login="owner@test")
-        self.assertEqual((st, json.loads(body), h["Cache-Control"]), (200, {"prefs": {}}, "no-store"))
+        self.assertEqual((st, json.loads(body), h["Cache-Control"]),
+                         (200, {"v": 1, "rev": 0, "prefs": {}, "updated": {}}, "no-store"))
         reader = session_of(self.sign_in("reader", "lantern-reader")[1])
         other = session_of(self.sign_in("other", "lantern-other")[1])
         put = json.dumps({"prefs": {"theme": "night", "kura.previewpane": "false"}}).encode()
@@ -2048,7 +2120,8 @@ class PrefsWithoutIdentityTest(unittest.TestCase):
             body = get(path)[1]
             self.assertIn('<meta name="machiya-prefs" content="/api/prefs">', body, path)
             self.assertNotIn("Signed in as", body, path)                 # no identity file: no account to show
-        self.assertIn("your other devices follow", get("/settings")[1])
+        self.assertIn("Follows you to your other devices when signed in.", get("/settings")[1])
+        self.assertIn('data-prefs-state="room"', get("/settings")[1])           # Kura's own store, named by no one
 
 
 def tearDownModule():
