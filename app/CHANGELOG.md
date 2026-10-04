@@ -4,6 +4,12 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.7.0
+
+- Settings follow the signed-in person (vaultkit 0.21.0): Theme, Appearance, Text Size and the Apps switches are saved to the Hister account and come with you to every Machiya app and device. Kura's Preview Pane follows you too. With `KURA_AUTH=hister`, `/api/prefs` forwards to the sign-in helper and a browser with no cookies yet is drawn in the account's theme from its first page. Without it, Kura keeps its own store, as before.
+- Settings has the order every Machiya app uses: Shared, Reading, This Device (Use This Device's Size, Offline Copies, Obsidian Vault), Account, About. Obsidian Vault and Offline Copies moved to This Device.
+- `/api/prefs` answers `{"v", "rev", "prefs", "updated"}` and accepts only the keys of Machiya's preferences schema (a wrong key or value is a 400).
+
 ## 0.6.14
 
 - `MACHIYA_SSO_COOKIE` names the Hister sign-in cookie (default `machiya_sso`, unchanged), so a second stack on the same domain (the dev stack) can use its own (vaultkit 0.20.0).
