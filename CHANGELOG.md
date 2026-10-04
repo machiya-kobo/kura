@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.1
+
+- On a phone the tab bar is a floating pill like Shiori's (vaultkit 0.16.0): it fits five tabs on any phone, the current tab sits on a raised pill, and it follows the light or dark variant as Shiori does.
+
 ## 0.6.0
 
 - **Identity** (Machiya's identity plan, phase 3; vaultkit v0.10.0): with `MACHIYA_IDENTITY_FILE`, Kura asks the
