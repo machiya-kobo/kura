@@ -39,7 +39,7 @@ from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANGELOG = os.path.join(APP_DIR, "CHANGELOG.md")      # GET /api/changelog; inside app/, so the image's COPY carries it
 PORT = int(os.environ.get("KURA_PORT", "8080"))

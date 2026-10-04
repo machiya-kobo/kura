@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.7.2
+
+- Kura accepts at most 64 connections at once and closes any connection still open after two minutes, so one client holding connections open (a byte at a time) can't use up every thread.
+
 ## 0.7.1
 
 Fixes from the October security sweep.
