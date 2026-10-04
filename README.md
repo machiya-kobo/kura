@@ -159,7 +159,8 @@ $DOCKER rm -f kura
 
 ### Natively on the BSDs
 
-On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages, then run
+On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages first (a fresh
+FreeBSD or OpenBSD has no `git`; the lines below include it), then clone Kura as in step 1 of the Quickstart and run
 `app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.7 or later, `pyyaml`, SQLite with FTS5 (every package
 below has it) and `git`. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
 
