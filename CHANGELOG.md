@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.4
+
+- The header is solid on a phone (vaultkit 0.16.3), the same in every room; 0.6.3 was tagged but never deployed.
+
 ## 0.6.3
 
 - On a phone, search lives in the tab bar (Search, the third tab, as in every room); the header's search field is hidden at phone width (vaultkit 0.16.2).
