@@ -27,6 +27,7 @@ except (OSError, envfile.EnvFileError) as err:
     raise SystemExit("kura: env file: %s" % err)
 
 import api  # noqa: E402
+from capped import Capped  # noqa: E402
 import pages  # noqa: E402
 import sites  # noqa: E402
 import push  # noqa: E402
@@ -345,6 +346,17 @@ def multi(query, key):
     for v in query.get(key, []):
         out.extend(p for p in v.split(",") if p)
     return out[:MAX_LIMIT]
+
+
+class CappedHTTPServer(Capped, ThreadingHTTPServer):
+    """At most 64 connections at once, none open longer than two minutes (capped.py): a slowloris client can't hold
+    every thread."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):      # a client that left, or one we cut off
+            return
+        super().handle_error(request, client_address)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -976,7 +988,7 @@ def main():
               "served over plain http, set KURA_PUBLIC_URL=http://<this address> or every sign-in is refused",
               flush=True)
     threading.Thread(target=state.loop, daemon=True).start()
-    server = ThreadingHTTPServer((BIND, PORT), Handler)
+    server = CappedHTTPServer((BIND, PORT), Handler)
     server.daemon_threads = True
     server.serve_forever()
 

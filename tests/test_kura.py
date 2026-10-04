@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -1009,6 +1010,45 @@ class SweepTest(unittest.TestCase):
         finally:
             if old is not None:
                 kura.shell.view.sites = old
+
+    def test_the_server_caps_its_connections_and_their_lifetime(self):         # KURA-10
+        import socket
+        import socketserver
+        import capped
+        self.assertTrue(issubclass(kura.CappedHTTPServer, capped.Capped))
+        self.assertEqual((kura.CappedHTTPServer.max_connections, kura.CappedHTTPServer.lifetime), (64, 120))
+
+        class Server(kura.CappedHTTPServer):
+            allow_reuse_address = True
+            max_connections = 2
+            lifetime = 1
+        server = Server(("127.0.0.1", 0), kura.Handler)                           # Kura's own handler, a held request
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        port = server.server_address[1]
+        log = io.StringIO()
+        redirect = contextlib.redirect_stderr(log)
+        redirect.__enter__()
+        self.addCleanup(redirect.__exit__, None, None, None)
+        held = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(2)]
+        for c in held:
+            c.sendall(b"GET /api/status HTTP/1.1\r\nHost: x\r\nX-Slow: ")        # a request that never finishes
+        self.addCleanup(lambda: [c.close() for c in held])
+        time.sleep(0.3)
+        third = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self.addCleanup(third.close)
+        third.settimeout(3)
+        self.assertEqual(third.recv(1), b"")                                       # over the cap: closed at once
+        held[0].settimeout(4)
+        self.assertEqual(held[0].recv(1), b"")                                     # still open after `lifetime`: shut down
+        time.sleep(0.3)
+        again = socket.create_connection(("127.0.0.1", port), timeout=5)           # the slots came back
+        self.addCleanup(again.close)
+        again.sendall(b"GET /api/status HTTP/1.0\r\n\r\n")
+        again.settimeout(3)
+        self.assertTrue(again.recv(20).startswith(b"HTTP/"))                       # accepted and served
+        self.assertNotIn("Traceback", log.getvalue())                              # a cut-off client is not an error to log
 
     def test_the_access_log_has_no_query_string(self):                         # KURA-11
         log = io.StringIO()
