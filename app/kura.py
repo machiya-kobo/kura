@@ -38,8 +38,7 @@ from vaultkit import verify as vk_verify  # noqa: E402
 
 VERSION = "0.6.8"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-# GET /api/changelog serves the first of these: next to the app (the image), else the repository's (a checkout)
-CHANGELOG_FILES = [os.path.join(APP_DIR, "CHANGELOG.md"), os.path.join(os.path.dirname(APP_DIR), "CHANGELOG.md")]
+CHANGELOG = os.path.join(APP_DIR, "CHANGELOG.md")      # GET /api/changelog; inside app/, so the image's COPY carries it
 PORT = int(os.environ.get("KURA_PORT", "8080"))
 REPO_URL = os.environ.get("KURA_REPO_URL", "").strip()
 REPO_DIR = os.environ.get("KURA_REPO_DIR", "/data/repo")
@@ -504,8 +503,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def changelog(self):
         """GET/HEAD /api/changelog: CHANGELOG.md's first 64 KiB (vaultkit.changelog), ETag/304, 404 without the file."""
-        path = next((f for f in CHANGELOG_FILES if os.path.isfile(f)), CHANGELOG_FILES[0])
-        status, body, headers = changelog.handle(path, self.headers)
+        status, body, headers = changelog.handle(CHANGELOG, self.headers)
         ctype = next(v for k, v in headers if k == "Content-Type")
         return self.send(status, body, ctype, headers=[(k, v) for k, v in headers if k != "Content-Type"])
 

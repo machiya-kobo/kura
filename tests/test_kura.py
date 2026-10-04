@@ -895,13 +895,13 @@ class ChangelogTest(unittest.TestCase):
     """GET/HEAD /api/changelog: the landing page's "recent deploys", open like /api/status."""
 
     def setUp(self):
-        self.files = kura.CHANGELOG_FILES
+        self.file = kura.CHANGELOG
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        self.addCleanup(setattr, kura, "CHANGELOG_FILES", self.files)
+        self.addCleanup(setattr, kura, "CHANGELOG", self.file)
 
     def test_served_as_markdown_with_an_etag_and_open_to_everyone(self):
-        with open(os.path.join(os.path.dirname(HERE), "CHANGELOG.md"), "rb") as f:     # a checkout: the repository's file
+        with open(os.path.join(os.path.dirname(HERE), "app", "CHANGELOG.md"), "rb") as f:
             want = f.read()
         for user in ("owner@test", None, "stranger@test"):          # no identity needed, like /api/status
             status, body = get("/api/changelog", user=user)
@@ -923,18 +923,16 @@ class ChangelogTest(unittest.TestCase):
             self.assertEqual((r.status, r.read(), r.headers["ETag"]), (200, b"", headers["ETag"]))
 
     def test_without_the_file_it_is_a_404_and_a_long_file_is_cut_at_a_whole_line(self):
-        kura.CHANGELOG_FILES = [os.path.join(self.tmp, "CHANGELOG.md")]
+        kura.CHANGELOG = os.path.join(self.tmp, "CHANGELOG.md")
         status, headers, body = fetch("/api/changelog")
         self.assertEqual((status, headers["Content-Type"]), (404, "text/plain; charset=utf-8"))
-        with open(kura.CHANGELOG_FILES[0], "w") as f:
+        with open(kura.CHANGELOG, "w") as f:
             f.write("".join("## 0.%d.0\n- a line of the changelog\n\n" % i for i in range(4000)))
         status, headers, body = fetch("/api/changelog")
         self.assertEqual(status, 200)
         self.assertLessEqual(len(body.encode()), 64 * 1024)
         self.assertTrue(body.endswith("\n"))
         self.assertTrue(body.startswith("## 0.0.0\n"))
-        kura.CHANGELOG_FILES = [os.path.join(self.tmp, "none.md"), os.path.join(self.tmp, "CHANGELOG.md")]   # the second is used
-        self.assertEqual(fetch("/api/changelog")[0], 200)
 
 
 class StatusViewTest(unittest.TestCase):
