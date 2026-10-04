@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.11
+
+- `KURA_AUTH=hister`: Hister's sign-in (through the hister-login helper) as Kura's gate, with no Tailscale fallback: signed out goes to sign-in, sign-in unavailable is a 503 (vaultkit 0.19.0). Off by default; `tailscale` is unchanged.
+
 ## 0.6.10
 
 - `KURA_HISTER_TOKEN_FILE`: the owner's Hister token, sent as `X-Access-Token` on every call to Hister (and to the `hister` command's environment, never its arguments), for the coming Hister sign-in. Unset sends nothing, as before.
