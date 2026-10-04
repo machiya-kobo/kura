@@ -585,10 +585,12 @@ class Handler(BaseHTTPRequestHandler):
         if owner:
             out.update(repo=safe_url(REPO_URL) or REPO_DIR, subdir=d.subdir)
         out["error"] = err(state.error, "sync failed")
-        # a private vault shows only its error here (/api/vaults, owner-gated, has the head and the count)
-        out["vaults"] = {x.name: {"error": err(x.error, "sync failed")} if x.private else
-                         {"head": x.head, "synced_at": x.synced_at, "notes": state.index.counts.get(x.name, 0),
-                          "error": err(x.error, "sync failed")} for x in state.sites}
+        if owner:       # a private vault shows only its error here (/api/vaults, owner-gated, has the head and the count)
+            out["vaults"] = {x.name: {"error": err(x.error, "sync failed")} if x.private else
+                             {"head": x.head, "synced_at": x.synced_at, "notes": state.index.counts.get(x.name, 0),
+                              "error": err(x.error, "sync failed")} for x in state.sites}
+        else:           # no vault names for anyone not signed in, just a count (a failing vault still trips "error")
+            out["vault_count"] = len(state.sites)
         out["push"], out["auth"] = push, AUTH
         return out
 

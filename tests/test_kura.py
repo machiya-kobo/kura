@@ -1040,6 +1040,20 @@ class HisterModeTest(unittest.TestCase):
         _, headers, _ = self.call("/", headers=self.cookie(SID_STRANGER))
         self.assertIn("machiya_sso=;", " ".join(headers.get_all("Set-Cookie")))       # a stale cookie is cleared
 
+    def test_the_open_status_names_no_vault(self):
+        for headers, ts in ((None, False), (None, True), (self.cookie(SID_OTHER), False), ({"X-Access-Token": "nope"}, False)):
+            status, _, body = self.call("/api/status", headers=headers, tailscale=ts)
+            self.assertEqual(status, 200, headers)
+            out = json.loads(body)
+            self.assertNotIn("vaults", out)
+            self.assertEqual(out["vault_count"], 2)
+            for name in ("work", "personal", "Work Notes"):
+                self.assertNotIn(name, body, headers)
+            self.assertEqual((out["ready"], out["auth"]), (True, "hister"))
+        out = json.loads(self.call("/api/status", headers=self.cookie(), tailscale=False)[2])
+        self.assertEqual(sorted(out["vaults"]), ["personal", "work"])       # the signed-in owner gets the detail
+        self.assertEqual(self.call("/api/changelog", tailscale=False)[0], 200)
+
     def test_a_hister_account_that_is_not_the_owners_is_403(self):
         for path in ("/", "/api/search?q=tea", "/api/vaults"):
             status, _, body = self.call(path, headers=self.cookie(SID_OTHER))
@@ -1136,7 +1150,10 @@ class StatusViewTest(unittest.TestCase):
         self.assertNotIn("repo", d)
         self.assertNotIn("subdir", d)
         self.assertNotIn(REPO, body)                                     # no path of the checkout either
-        self.assertEqual(sorted(d), ["auth", "error", "head", "notes", "push", "ready", "synced_at", "vaultkit", "vaults", "version"])
+        self.assertEqual(sorted(d), ["auth", "error", "head", "notes", "push", "ready", "synced_at", "vault_count", "vaultkit", "version"])
+        self.assertEqual(d["vault_count"], 2)
+        self.assertNotIn("work", body)                                   # no vault names, private or not, for a caller who is no owner
+        self.assertNotIn("personal", body)
         self.assertIn('"ready": true', body)                             # what the monitoring probe matches on
         self.assertNotIn('"error": "', body)
         d = json.loads(get("/api/status", user="stranger@test")[1])      # a login that isn't allowed is no owner
@@ -1154,7 +1171,8 @@ class StatusViewTest(unittest.TestCase):
             self.assertNotIn("forge.example", body)
             self.assertNotIn("/srv/vault", body)
             d = json.loads(body)
-            self.assertEqual((d["error"], d["vaults"]["work"]), ("sync failed", {"error": "sync failed"}))
+            self.assertEqual(d["error"], "sync failed")                  # a vault's failure still trips the probe, unnamed
+            self.assertNotIn("vaults", d)
             self.assertIn('"error": "sync failed"', body)                # still trips a probe that looks for `"error": "`
             d = getj("/api/status")[1]                                   # the owner gets the text
             self.assertIn("forge.example", d["error"])
@@ -1454,9 +1472,13 @@ class SharedVaultTest(unittest.TestCase):
         self.assertEqual([(v["name"], v["default"], v["private"]) for v in d["vaults"]],
                          [("personal", True, False), ("work", False, True), ("team", False, False)])
         st = json.loads(get("/api/status", user=None)[1])
-        self.assertEqual(sorted(st["vaults"]["team"]), ["error", "head", "notes", "synced_at"])   # shown like the default
-        self.assertEqual(st["vaults"]["team"]["notes"], 3)
-        self.assertEqual(st["vaults"]["work"], {"error": None})            # still only its error
+        self.assertNotIn("vaults", st)                                     # the open view names no vault at all, shared or not
+        self.assertNotIn("team", json.dumps(st))
+        self.assertNotIn("work", json.dumps(st))
+        full = getj("/api/status")[1]                                      # the owner: a shared vault in full, a private one's error
+        self.assertEqual(sorted(full["vaults"]["team"]), ["error", "head", "notes", "synced_at"])
+        self.assertEqual(full["vaults"]["team"]["notes"], 3)
+        self.assertEqual(full["vaults"]["work"], {"error": None})
 
     def test_reader_keeps_a_shared_vault(self):
         st, h, body = fetch("/v/team/n/Guides/Onboarding")
@@ -1655,7 +1677,10 @@ class IdentityTest(unittest.TestCase):
     def test_the_full_status_is_the_owners(self):
         self.assertIn("repo", json.loads(as_("/api/status", Tailscale_User_Login="owner@test")[2]))
         self.assertNotIn("repo", json.loads(self.agent("/api/status")[2]))
-        self.assertEqual(json.loads(self.agent("/api/status")[2])["vaults"]["work"], {"error": None})
+        view = json.loads(self.agent("/api/status")[2])
+        self.assertNotIn("vaults", view)                                  # no vault names for a caller who isn't the owner
+        self.assertNotIn("work", json.dumps(view))
+        self.assertEqual(view["vault_count"], 2)
 
     def test_an_agent_never_reads_a_private_vault(self):
         _, _, body = self.agent("/api/vaults")
