@@ -5,6 +5,7 @@ Run with `python3 -m unittest discover -s tests` (needs markdown and pyyaml), or
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -271,6 +272,17 @@ class ShellTest(unittest.TestCase):
             self.assertIn(want, body)
         for name in ("machiya.css", "machiya.js", "machiya-sw.js"):
             self.assertEqual(get("/static/" + name)[0], 200, name)
+
+    def test_desktop_nav_has_search_third_and_the_header_field_is_hidden(self):
+        # Search has no field in the header any more (the floating bar and this nav link replace it), in every vault
+        for path, prefix in (("/", ""), ("/v/work/", "/v/work")):
+            _, body = get(path)
+            nav = re.search(r'<nav class="nav">(.*?)</nav>', body).group(1)
+            self.assertEqual(re.findall(r'(?:<b class="here">|<a href="[^"]*">)([^<]+)', nav),
+                             ["Home", "Recent", "Search", "Tags"], path)
+            self.assertIn('<a href="%s/search">Search</a>' % prefix, nav)
+        css = get("/static/machiya.css")[1]
+        self.assertIn(".topbar form.search { display: none; }", css)
 
     def test_settings(self):
         status, headers, body = fetch("/settings")

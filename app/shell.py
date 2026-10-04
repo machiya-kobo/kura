@@ -39,7 +39,8 @@ def default_site():
 
 def nav(site):
     p = site.prefix if site else ""
-    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/t/", "tags", "Tags")]
+    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/search", "search", "Search"),
+            (p + "/t/", "tags", "Tags")]
 
 
 def tabs(site):
