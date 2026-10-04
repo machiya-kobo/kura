@@ -35,7 +35,7 @@ from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.6.5"
+VERSION = "0.6.6"
 PORT = int(os.environ.get("KURA_PORT", "8080"))
 REPO_URL = os.environ.get("KURA_REPO_URL", "").strip()
 REPO_DIR = os.environ.get("KURA_REPO_DIR", "/data/repo")

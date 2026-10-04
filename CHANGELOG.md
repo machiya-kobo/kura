@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.6
+
+- On a phone the header scrolls with the page instead of staying pinned (vaultkit 0.16.7): the installed app on iOS drew a pinned header soft. The Rooms menu's text meets AA contrast in every theme.
+
 ## 0.6.5
 
 - No search field in the header at any width (vaultkit 0.16.4): Search is the third tab on a phone and the third link on a wide screen, and "/" opens the search page. 0.6.4 was tagged but never deployed.
