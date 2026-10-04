@@ -43,5 +43,5 @@ vault but the default without `+shared`) stays out of the answer.
 
 ## Sending a change
 
-Open a pull request with what changed and why, and which tests you ran. Keep one change per pull request. By
+Open a pull request with what changed and why, and which tests you ran. Keep one change per pull request. A change people will notice gets a line in `app/CHANGELOG.md` (newest version first; it is served at `/api/changelog`). The maintainer's release commit sets the version header and `VERSION` in `app/kura.py`. By
 contributing, you agree that your work is licensed under the GNU AGPL-3.0-or-later, as the rest of Kura.
