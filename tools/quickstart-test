@@ -9,11 +9,11 @@ cannot drift. It reads the README's runnable blocks: an HTML comment on the line
                                                non-empty line has to appear in the output (as a substring)
 
 Paths: `quick` (the Quickstart, the native run on Linux and macOS) and `quick-debian` (its packages on Debian),
-`standalone` (every run), `container` (every container run), `container-docker` or `container-podman` (the engine of the run),
+`container` (every container run), `container-docker` or `container-podman` (the engine of the run),
 `container-debian` (installing podman), `native` (every native run on a BSD), and `native-openbsd`, `native-freebsd`,
-`native-netbsd` (the packages of one OS). A container run executes `standalone` + `container-debian` (over ssh only) +
+`native-netbsd` (the packages of one OS). A container run executes `container-debian` (over ssh only) +
 `container-<engine>` + `container`; a native run executes `quick-<this OS>` + `quick` on Linux and macOS, and
-`standalone` + `native-<this OS>` + `native` on a BSD. A step named `serve` starts a server in the foreground, as a reader
+`native-<this OS>` + `native` on a BSD. A step named `serve` starts a server in the foreground, as a reader
 types it: the test runs it in the background and waits until Kura reports `"ready": true`. All blocks of a run go
 into ONE POSIX shell session (`sh -eu`: dash, ksh or FreeBSD sh, so the blocks run on the BSDs, where bash is not installed), so variables such as PY and background jobs carry over, like in a terminal.
 A step named `packages` installs system packages (it needs root, doas or sudo): `--skip-packages` leaves it out.
@@ -110,7 +110,7 @@ def native_paths(osname):
     """The README paths of a native run on this operating system."""
     if osname in ("debian", "linux", "darwin"):
         return ("quick-" + osname, "quick")
-    return ("standalone", "native-" + osname, "native")
+    return ("native-" + osname, "native")
 
 
 def script_lines(steps, cwd, work):
@@ -143,10 +143,15 @@ def run_path(label, paths, args, source, log):
     return execute(label, paths, args, source, log)
 
 
-def execute(label, paths, args, source, log):
+def scratch_base():
+    """Where the run's scratch directories go: $TMPDIR, else /var/tmp/<user> (never a shared /tmp)."""
     base = os.environ.get("TMPDIR") or "/var/tmp/%s" % getpass.getuser()
     os.makedirs(base, exist_ok=True)
-    work = tempfile.mkdtemp(prefix="kura-quickstart-", dir=base)
+    return base
+
+
+def execute(label, paths, args, source, log):
+    work = tempfile.mkdtemp(prefix="kura-quickstart-", dir=scratch_base())
     clone = os.path.join(work, "kura")
     env, group = dict(os.environ), None
     try:
@@ -196,7 +201,7 @@ def remote_os(host):
 def execute_ssh(args, source, log):
     host, osname = args.ssh, remote_os(args.ssh)
     container = args.only == "container"
-    paths = ("standalone", "container-" + osname, "container-podman", "container") if container else \
+    paths = ("container-" + osname, "container-podman", "container") if container else \
         native_paths(osname)
     out = subprocess.run(["git", "-C", source, "show", "HEAD:README.md"], capture_output=True, text=True, check=True).stdout
     steps = steps_for(parse(out), paths, args.skip_packages)
@@ -208,7 +213,7 @@ def execute_ssh(args, source, log):
     if not work.startswith("/var/tmp/"):
         print("   cannot make a work directory on %s" % host)
         return False
-    local = tempfile.mkdtemp(prefix="kura-quickstart-")
+    local = tempfile.mkdtemp(prefix="kura-quickstart-", dir=scratch_base())
     try:
         tar, script_file = os.path.join(local, "kura.tar"), os.path.join(local, "run.sh")
         subprocess.run(["git", "-C", source, "archive", "--format=tar", "--prefix=kura/", "-o", tar, "HEAD"], check=True)
@@ -291,7 +296,7 @@ def main():
         sys.exit(0 if ok else 1)
     runs = []
     if args.only in (None, "container"):
-        runs.append(("container", ("standalone", "container-" + (engine()[0] or "podman"), "container")))
+        runs.append(("container", ("container-" + (engine()[0] or "podman"), "container")))
     if args.only in (None, "native"):
         runs.append(("native", native_paths(this_os())))
     results = [run_path(label, paths, args, args.source, log) for label, paths in runs]
