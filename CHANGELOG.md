@@ -4,6 +4,30 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.0
+
+- **Identity** (Machiya's identity plan, phase 3; vaultkit v0.10.0): with `MACHIYA_IDENTITY_FILE`, Kura asks the
+  identity file who is calling (a token, a Tailscale login or tagged node, a trusted proxy header, a session) instead
+  of `KURA_USERS`. A principal needs the `kura` `read` grant and reads only the vaults it grants: an agent gets the
+  default and shared vaults, never a private one unless its grant names it, whatever it asks; a vault it may not read
+  answers exactly like one that doesn't exist. `/api/status`'s full view is the owner's. New settings:
+  `KURA_AUTH=header` with `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`, `KURA_ACCEPT_APP_CAPS`. Without the file
+  nothing changes.
+- `default` and `shared` can't be vault names any more (they are words in an identity grant).
+- **Sign-in, pairing and preferences** (the identity plan's phase 6; vaultkit v0.11.0): with an identity file,
+  `KURA_SIGNIN=1` turns on the built-in sign-in (`/signin`, `/signout`; a page refused with 401 links to it, and
+  Settings has Sign Out for a signed-in browser). `POST /api/pair` trades a Shiori pairing code for a device token,
+  and `GET`/`PUT /api/prefs` keeps each principal's preferences in `prefs.sqlite3` next to `KURA_DB`. Sign-in, sign-out
+  and a prefs `PUT` made with a cookie must come from `KURA_PUBLIC_URL`'s origin (or, without it, Kura's own https
+  page); over plain http, set `KURA_PUBLIC_URL`. Any other `POST` or `PUT` answers 405. Without an identity file the
+  new routes are 404 and nothing else changes.
+- **vaultkit v0.13 to v0.15** (the PWA pass): a note's HTML is sanitized before it is shown (a script in a note of a
+  shared vault used to run on Kura's own origin), and every page sends a Content-Security-Policy, `nosniff` and a
+  Referrer-Policy; signing out clears the offline copies; the 401, 404 and offline pages share one design; the web
+  manifest's colours follow the device, so the splash screen is light on a light phone; ten themes, each dark and
+  light, under Settings → Display (Theme and Appearance); preferences are kept and shared across rooms even without an
+  identity file; a signed-in person is shown in the header.
+
 ## 0.5.0
 
 - A vault can be marked shared in `KURA_VAULTS`: `name+shared[:Title]=source#subdir`. A shared vault is treated like the
@@ -22,21 +46,6 @@ show the running version.
   name in the new `KURA_ALLOWED_HOSTS`; anything else gets 403. Before, a web page could point its own name at a
   localhost Kura (DNS rebinding) and read every note, private vaults included.
 - A client that stops sending is dropped after 30 seconds instead of holding a thread for good.
-- **Identity** (Machiya's identity plan, phase 3; vaultkit v0.10.0): with `MACHIYA_IDENTITY_FILE`, Kura asks the
-  identity file who is calling (a token, a Tailscale login or tagged node, a trusted proxy header, a session) instead
-  of `KURA_USERS`. A principal needs the `kura` `read` grant and reads only the vaults it grants: an agent gets the
-  default and shared vaults, never a private one unless its grant names it, whatever it asks; a vault it may not read
-  answers exactly like one that doesn't exist. `/api/status`'s full view is the owner's. New settings:
-  `KURA_AUTH=header` with `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`, `KURA_ACCEPT_APP_CAPS`. Without the file
-  nothing changes.
-- `default` and `shared` can't be vault names any more (they are words in an identity grant).
-- **Sign-in, pairing and preferences** (the identity plan's phase 6; vaultkit v0.11.0): with an identity file,
-  `KURA_SIGNIN=1` turns on the built-in sign-in (`/signin`, `/signout`; a page refused with 401 links to it, and
-  Settings has Sign Out for a signed-in browser). `POST /api/pair` trades a Shiori pairing code for a device token,
-  and `GET`/`PUT /api/prefs` keeps each principal's preferences in `prefs.sqlite3` next to `KURA_DB`. Sign-in, sign-out
-  and a prefs `PUT` made with a cookie must come from `KURA_PUBLIC_URL`'s origin (or, without it, Kura's own https
-  page); over plain http, set `KURA_PUBLIC_URL`. Any other `POST` or `PUT` answers 405. Without an identity file the
-  new routes are 404 and nothing else changes.
 
 ## 0.4.3
 
