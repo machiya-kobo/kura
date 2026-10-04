@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.6.14
+
+- `MACHIYA_SSO_COOKIE` names the Hister sign-in cookie (default `machiya_sso`, unchanged), so a second stack on the same domain (the dev stack) can use its own (vaultkit 0.20.0).
+
 ## 0.6.13
 
 - The open `/api/status` no longer names any vault: it gives `vault_count` and the default vault's counts; the names and per-vault detail are for the signed-in owner only.
