@@ -367,8 +367,14 @@ class Handler(BaseHTTPRequestHandler):
     def hister(self):
         """The Hister sign-in's answer for this request (histerauth.Result), worked out once."""
         if getattr(self, "_hres", None) is None:
-            self._hres = HISTER.resolve(self.headers, is_page=self.is_page(), path=self.path)
+            self._hres = HISTER.resolve(self.headers, is_page=self.hister_page(), path=self.path)
         return self._hres
+
+    def hister_page(self):
+        """A page a browser opens, which a signed-out answer redirects to the sign-in. A request that names its
+        credential itself (X-Access-Token or Authorization: a browser never adds either) is a client: a wrong one is a
+        401, never a redirect, for pages too."""
+        return self.is_page() and not (self.headers.get("X-Access-Token") or self.headers.get("Authorization"))
 
     def allowed(self):
         if HISTER is not None:
@@ -416,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def refuse(self):
         if HISTER is not None:      # signed out: a page goes to the helper's sign-in, an API call gets 401 JSON; 403; 503
-            return self.reply(*HISTER.respond(self.hister(), self.is_page(), self.ctx()))
+            return self.reply(*HISTER.respond(self.hister(), self.hister_page(), self.ctx()))
         if IDENTITY is not None:
             who = self.who()
             status = who.status if not who else 403

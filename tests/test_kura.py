@@ -1040,6 +1040,19 @@ class HisterModeTest(unittest.TestCase):
         _, headers, _ = self.call("/", headers=self.cookie(SID_STRANGER))
         self.assertIn("machiya_sso=;", " ".join(headers.get_all("Set-Cookie")))       # a stale cookie is cleared
 
+    def test_a_wrong_token_is_a_401_on_a_page_too_and_never_a_redirect(self):
+        for headers in ({"X-Access-Token": "nope"}, {"Authorization": "Bearer nope"}, {"Authorization": "Bearer " + SID_STRANGER},
+                        {"X-Access-Token": "nope", "Cookie": "machiya_sso=" + SID}):      # the explicit one is checked first
+            for path in ("/", "/n/Notes/Tea%20brewing", "/v/work/", "/api/search?q=tea"):
+                status, h, body = self.call(path, headers=headers)
+                self.assertEqual(status, 401, (path, headers))
+                self.assertNotIn("Location", h, (path, headers))
+                self.assertNotIn("machiya_sso_try", h.get("Set-Cookie") or "", (path, headers))   # no loop guard: nothing was redirected
+                self.assertEqual(json.loads(body)["error"], "sign in", (path, headers))
+                self.assertNotIn("Zebrafish", body)
+        status, h, _ = self.call("/n/Notes/Tea%20brewing", headers={"Cookie": "machiya_sso=" + SID_STRANGER})
+        self.assertEqual(status, 302)                                      # a browser's stale cookie still goes to sign-in
+
     def test_the_open_status_names_no_vault(self):
         for headers, ts in ((None, False), (None, True), (self.cookie(SID_OTHER), False), ({"X-Access-Token": "nope"}, False)):
             status, _, body = self.call("/api/status", headers=headers, tailscale=ts)
