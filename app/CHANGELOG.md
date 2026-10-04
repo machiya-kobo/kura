@@ -4,6 +4,17 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.7.1
+
+Fixes from the October security sweep.
+
+- A vault's SVG no longer runs script in Kura's address: `/a/` serves it with a sandboxing `Content-Security-Policy` (and every vault image with `nosniff`), so opening one directly can't read the API. In a page, an `<img>` never ran it.
+- Every `/api/*` answer is `no-store` (a private vault's or an Archive note's text is not kept by a browser or a client's cache), except `/api/status`, `/api/changelog` and `/api/offline`.
+- With the old Tailscale gate (no identity file), Kura now refuses to start on a non-loopback `KURA_BIND` unless `KURA_BIND_BEHIND_PROXY=1`, as the identity modes always did: anyone who can reach the port could forge the login header. Listen on `127.0.0.1` behind `tailscale serve`, or set `KURA_BIND_BEHIND_PROXY=1` when a proxy is the only way in. `KURA_AUTH=open` and Hister sign-in are unchanged.
+- Notes with non-ASCII file names (`町家.md`, `café notes.md`) keep their change dates, so they sort right in Recent, the API and the feed.
+- A garbage or oversized request line gets a 400 answer instead of a dropped connection and a traceback in the log; the access log no longer records query strings (a private vault's search terms).
+- An empty vault grant shows no vault names (identity file); the external-links cache is safe under concurrent requests; the image pins `markdown` to the version the tests run on.
+
 ## 0.7.0
 
 - Settings follow the signed-in person (vaultkit 0.21.0): Theme, Appearance, Text Size and the Apps switches are saved to the Hister account and come with you to every Machiya app and device. Kura's Preview Pane follows you too. With `KURA_AUTH=hister`, `/api/prefs` forwards to the sign-in helper and a browser with no cookies yet is drawn in the account's theme from its first page. Without it, Kura keeps its own store, as before.
