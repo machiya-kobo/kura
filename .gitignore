@@ -13,3 +13,5 @@ __pycache__/
 /.venv-shots/
 /.pw-browsers/
 /vault/
+# Machiya's identity file (logins, token hashes, the session key): never in the repository
+identity.toml
