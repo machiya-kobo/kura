@@ -17,9 +17,10 @@ find notes next to the pages they cite. Notes stay in Hister once pushed; Shiori
   pages); vault documents carry metadata.ignore_skip_rules, the per-document override.
 - Every Hister call sends `Origin: hister://`. The default vault and the shared vaults are pushed, nothing else.
 - With KURA_HISTER_TOKEN_FILE every call also sends the owner's Hister token as `X-Access-Token`. The file is read on
-  every call (a regenerated token needs no restart); a file that is set but empty or unreadable stops the call
-  (fail closed: nothing goes out without the token Hister will want). The token is never logged, put in a URL or
-  argv or an error text, and a redirect is never followed, so it can't go to another host.
+  every call through vaultkit's histerauth.hister_headers (a regenerated token needs no restart); a file that is set
+  but empty or unreadable stops the call (fail closed: nothing goes out without the token Hister will want). The
+  token is never logged, put in a URL or argv or an error text, and a redirect is never followed, so it can't go to
+  another host.
 """
 import datetime
 import hashlib
@@ -32,7 +33,7 @@ import urllib.request
 
 import api
 import search
-from vaultkit import read_secret
+from vaultkit import histerauth
 
 LABEL = "vault"
 DOC_V = 2                           # the document's shape; 2 = the vault_* metadata keys
@@ -59,13 +60,11 @@ class Hister:
 
     def call(self, method, path, body=None, timeout=30):
         data = json.dumps(body).encode() if body is not None else None
-        headers = {"Origin": "hister://", "Accept": "application/json", "Content-Type": "application/json"}
-        if self.token_file:
-            token = read_secret(self.token_file)        # read per call: a regenerated token needs no restart
-            if not token or any(c.isspace() or ord(c) < 32 for c in token):
-                self.error = "hister unreachable: no usable token in KURA_HISTER_TOKEN_FILE"    # "unreachable": retried
-                return 0, None
-            headers["X-Access-Token"] = token
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        headers.update(histerauth.hister_headers(self.token_file))     # Origin, and X-Access-Token (re-read when it changes)
+        if self.token_file and "X-Access-Token" not in headers:         # set but empty or unreadable: fail closed
+            self.error = "hister unreachable: no usable token in KURA_HISTER_TOKEN_FILE"      # "unreachable": retried
+            return 0, None
         req = urllib.request.Request(self.api + path, data=data, method=method, headers=headers)
         try:
             with OPENER.open(req, timeout=timeout) as r:
