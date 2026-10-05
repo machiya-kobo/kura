@@ -43,6 +43,18 @@ class Site(Vault):
         self.head, self.synced_at, self.error, self.ready = "", None, None, False
 
 
+# A mirror's `git reset --hard` writes a reflog, which needs a committer identity; without one git looks up the host's
+# fully qualified name, and on a host whose name doesn't resolve that stalls every sync (76 s on a test NetBSD).
+IDENT = {"GIT_AUTHOR_NAME": "kura", "GIT_AUTHOR_EMAIL": "kura@localhost",
+         "GIT_COMMITTER_NAME": "kura", "GIT_COMMITTER_EMAIL": "kura@localhost"}
+
+
+def mirror_of(url, dir, branch, token, user):
+    m = Mirror(url, dir, branch, token, user)
+    m.env = dict(m.env or {}, **IDENT)
+    return m
+
+
 class Source:
     """One git checkout, shared by the vaults inside it (an update fetches it once)."""
 
@@ -52,8 +64,8 @@ class Source:
 
     def update(self):
         self.head = self.git.update()[0] if self.mirror else self.git.head()
-        if self.mirror and self.git.failed:     # the clone, fetch or reset didn't reach the remote: not "synced" (MACH-F-4)
-            raise RuntimeError("the remote could not be reached: %s" % self.git.failed)
+        if self.mirror and self.git.failed:     # the clone, fetch or reset didn't finish: not "synced" (MACH-F-4)
+            raise RuntimeError("the vault could not be updated: %s" % self.git.failed)
         return self.head
 
 
@@ -98,14 +110,14 @@ def build(env, repo_url, repo_dir, subdir, branch, token_file, user):
         if spec not in sources:
             if re.match(r"^[a-z][a-z0-9+.-]*://|^git@", spec):        # a git URL: clone it under repo_dir
                 dir = os.path.join(repo_dir, hashlib.sha1(spec.encode()).hexdigest()[:10])
-                sources[spec] = Source(Mirror(spec, dir, branch, token, user), dir, True)
+                sources[spec] = Source(mirror_of(spec, dir, branch, token, user), dir, True)
             else:                                                       # a directory, used as it is
                 sources[spec] = Source(Git(spec), spec, False)
         return sources[spec]
 
     if not entries:                                                    # KURA_REPO_* describe one vault
         if repo_url:
-            src = Source(Mirror(repo_url, repo_dir, branch, token, user), repo_dir, True)
+            src = Source(mirror_of(repo_url, repo_dir, branch, token, user), repo_dir, True)
         else:
             src = Source(Git(repo_dir), repo_dir, False)
         sources[repo_url or repo_dir] = src

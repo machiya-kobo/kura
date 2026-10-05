@@ -26,6 +26,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import urllib.error
@@ -35,6 +36,8 @@ import api
 import search
 from vaultkit import histerauth
 
+RETRY_HTTP = (401, 403, 408, 425, 429)     # about the caller or the moment, not the note: never "refused"
+RETRY_ROW = re.compile(r"^refused: (hister unreachable|HTTP (401|403|408|425|429|5[0-9]{2})\b)")
 LABEL = "vault"
 DOC_V = 2                           # the document's shape; 2 = the vault_* metadata keys
 SCHEMA = """CREATE TABLE IF NOT EXISTS hister_docs (
@@ -57,13 +60,16 @@ class Hister:
         self.api = url.rstrip("/")
         self.token_file = token_file
         self.error = ""
+        self.retry = False          # the last call failed for a reason that isn't about the document (try again later)
 
     def call(self, method, path, body=None, timeout=30):
+        self.retry = False
         data = json.dumps(body).encode() if body is not None else None
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         headers.update(histerauth.hister_headers(self.token_file))     # Origin, and X-Access-Token (re-read when it changes)
         if self.token_file and "X-Access-Token" not in headers:         # set but empty or unreadable: fail closed
             self.error = "hister unreachable: no usable token in KURA_HISTER_TOKEN_FILE"      # "unreachable": retried
+            self.retry = True
             return 0, None
         req = urllib.request.Request(self.api + path, data=data, method=method, headers=headers)
         try:
@@ -73,8 +79,10 @@ class Hister:
             raw, status = e.read(), e.code
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.error = "hister unreachable: %s" % e
+            self.retry = True
             return 0, None
         self.error = "" if status < 300 else "HTTP %d: %s" % (status, raw[:200].decode("utf-8", "replace"))
+        self.retry = status in RETRY_HTTP or status >= 500      # not signed in (yet), throttled, or Hister is struggling
         return status, raw
 
     def add(self, doc):
@@ -153,13 +161,14 @@ class Push:
             url = api.note_url(self.base, note, getattr(vault, "prefix", ""))
             sha = hashlib.sha1(("%s\n%s\n%s\n%s" % (DOC_V, url, note.published, note.text)).encode()).hexdigest()
             old = known.get(rel)
-            if old and old["sha"] == sha:
-                continue
+            if old and old["sha"] == sha and not RETRY_ROW.match(old["status"] or ""):
+                continue                # sent, or refused for the note's own sake (until it changes); a refusal that was
+                                        # about the caller (HTTP 401 before the token was set) is sent again
             if old and old["url"] != url:
                 self.h.delete(old["url"])
                 deleted += 1
             ok = self.h.add(self.doc(vault, note, url))
-            if not ok and self.h.error.startswith("hister unreachable"):
+            if not ok and self.h.retry:
                 complete = False
                 break                   # nothing recorded; the next sync tries again
             # a refused note (e.g. Hister's sensitive-content check) is retried when it changes
@@ -176,7 +185,7 @@ class Push:
                      "failed": failed, "head": head, "complete": complete}
         if pushed or deleted or failed or not complete:
             print("kura push: %d pushed, %d deleted, %d refused%s" % (
-                pushed, deleted, failed, "" if complete else " (Hister unreachable; will retry)"), flush=True)
+                pushed, deleted, failed, "" if complete else " (Hister didn't take them; will retry)"), flush=True)
         return self.last
 
     def withdraw(self, shared):
@@ -187,7 +196,7 @@ class Push:
             if k.startswith("/v/") and k[3:].split("/", 1)[0] not in shared:
                 if not self.h.delete(row["url"]):
                     complete = False                    # kept; the next run tries again
-                    if self.h.error.startswith("hister unreachable"):
+                    if self.h.retry:
                         break
                     continue
                 self.save_row(k, None, None, None)

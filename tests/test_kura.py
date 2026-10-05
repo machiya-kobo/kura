@@ -1057,6 +1057,23 @@ class SweepTest(unittest.TestCase):
         self.assertTrue(again.recv(20).startswith(b"HTTP/"))                       # accepted and served
         self.assertNotIn("Traceback", log.getvalue())                              # a cut-off client is not an error to log
 
+    def test_a_mirror_runs_git_with_a_fixed_identity_and_says_what_failed(self):
+        import sites
+        made, sources = sites.build({}, "https://git.example/vault.git", "/data/repo", "", "", "", "token")
+        env = sources[0].git.env
+        self.assertEqual((env["GIT_COMMITTER_NAME"], env["GIT_COMMITTER_EMAIL"]), ("kura", "kura@localhost"))   # no host lookup
+        self.assertEqual((env["GIT_AUTHOR_NAME"], env["GIT_AUTHOR_EMAIL"]), ("kura", "kura@localhost"))
+
+        class Failing:
+            failed = "fatal: Unable to create '.git/HEAD.lock': File exists"
+
+            def update(self):
+                return "abc", False
+        with self.assertRaises(RuntimeError) as cm:
+            sites.Source(Failing(), "/x", True).update()
+        self.assertNotIn("remote could not be reached", str(cm.exception))                # a local lock isn't the remote's fault
+        self.assertIn("HEAD.lock", str(cm.exception))
+
     def test_every_answer_carries_the_base_headers(self):                      # websafe.base_headers (v0.22)
         for path in ("/api/status", "/api/search?q=tea", "/api/changelog", "/feed.xml", "/static/kura.css", "/sw.js",
                      "/a/pic.png", "/static/icons/kura.svg", "/api/nope", "/v/personal/n/X", "/theme?set=day"):
@@ -1576,6 +1593,7 @@ class FakeHister(kura.BaseHTTPRequestHandler):
     tokens = []                     # the X-Access-Token of each call (None: none sent)
     redirect = False                # answer 302 to another address
     refuse = False                  # answer 500 to every delete
+    add_status = 0                  # answer this status to every add (0: as usual)
 
     def log_message(self, *args):
         pass
@@ -1591,7 +1609,8 @@ class FakeHister(kura.BaseHTTPRequestHandler):
             self.end_headers()
             return
         refused = FakeHister.refuse and self.path == "/api/delete"
-        self.send_response(500 if refused else 200 if self.headers.get("Origin") == "hister://" else 403)
+        self.send_response(FakeHister.add_status if FakeHister.add_status and self.path == "/api/add"
+                           else 500 if refused else 200 if self.headers.get("Origin") == "hister://" else 403)
         self.send_header("Content-Length", "2")
         self.end_headers()
         self.wfile.write(b"{}")
@@ -1615,6 +1634,48 @@ class PushTest(unittest.TestCase):
         FakeHister.calls, FakeHister.tokens, FakeHister.redirect = [], [], False
         db = os.path.join(TMP, "push-token-%s.sqlite3" % self.id().rsplit(".", 1)[-1])
         return push.Push("http://127.0.0.1:%d" % self.srv.server_address[1], db, "personal", "https://kura.test", token_file)
+
+    def test_a_refusal_about_the_caller_is_retried_and_never_recorded_as_the_notes_own(self):
+        import push
+        self.addCleanup(setattr, FakeHister, "add_status", 0)
+        for status in (401, 403, 429, 503):
+            FakeHister.add_status = status
+            p = self.hister_with("")
+            with contextlib.redirect_stdout(io.StringIO()):
+                r = p.run_once(kura.state.vault, self.notes)
+            self.assertEqual((r["pushed"], r["failed"], r["complete"]), (0, 0, False), status)   # stopped, not "refused"
+            self.assertTrue(p.pending, status)
+            self.assertEqual(p.rows(), {}, status)                                           # nothing recorded
+            self.assertEqual(len(FakeHister.calls), 1, status)                               # and it didn't hammer Hister
+            self.assertTrue(p.h.error.startswith("HTTP %d" % status))
+        FakeHister.add_status = 0
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = p.run_once(kura.state.vault, self.notes)
+        self.assertEqual((r["pushed"], r["complete"]), (4, True))                            # the next sync sends them
+        FakeHister.add_status = 400                                                          # a note's own refusal still sticks
+        p2 = self.hister_with("")
+        p2.db.execute("DELETE FROM hister_docs")
+        p2.db.commit()
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = p2.run_once(kura.state.vault, self.notes)
+        self.assertEqual((r["failed"], r["complete"]), (4, True))
+        FakeHister.calls = []
+        FakeHister.add_status = 0
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(p2.run_once(kura.state.vault, self.notes)["pushed"], 0)         # not retried until the note changes
+        self.assertEqual(FakeHister.calls, [])
+
+    def test_notes_refused_with_401_before_the_token_was_set_are_sent_again(self):
+        p = self.hister_with("")
+        with contextlib.redirect_stdout(io.StringIO()):
+            p.run_once(kura.state.vault, self.notes)
+        for rel, row in p.rows().items():                                                    # what an older Kura recorded
+            p.save_row(rel, row["url"], row["sha"], "refused: HTTP 401: sign in")
+        FakeHister.calls = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = p.run_once(kura.state.vault, self.notes)
+        self.assertEqual((r["pushed"], r["complete"]), (4, True))
+        self.assertTrue(all(row["status"] == "ok" for row in p.rows().values()))
 
     def test_the_owner_token_goes_on_every_call_when_a_file_is_set(self):
         secret = "tok-7f3a9c0d51e24b86"
