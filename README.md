@@ -162,13 +162,13 @@ $DOCKER rm -f kura
 On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages first (a fresh
 FreeBSD or OpenBSD has no `git`; the lines below include it), then clone Kura as in step 1 of the Quickstart and run
 `app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml`, SQLite with FTS5 (every package
-below has it) and `git`. Kura refuses to start with an older `markdown` (it can run out of memory on one note under Python 3.13), and some BSD packages are older (NetBSD's is 3.10): then install it with pip in a virtual environment (`$PY -m venv --system-site-packages .venv && .venv/bin/pip install 'markdown>=3.11'`) and use `.venv/bin/python` as `$PY`. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
+below has it) and `git`. Kura refuses to start with an older `markdown` (it can run out of memory on one note under Python 3.13), and every BSD package is older today (FreeBSD and OpenBSD 3.10.2, NetBSD 3.10.3), so the packages below leave `markdown` out and a virtual environment gets it from pip. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
 
 **OpenBSD 7.9:**
 
 <!-- quickstart: native-openbsd:packages -->
 ```bash
-doas pkg_add python%3 py3-markdown py3-yaml git curl
+doas pkg_add python%3 py3-yaml git curl
 ```
 
 <!-- quickstart: native-openbsd:python -->
@@ -180,7 +180,7 @@ PY=python3
 
 <!-- quickstart: native-freebsd:packages -->
 ```bash
-sudo pkg install -y python312 py312-sqlite3 py312-markdown py312-pyyaml git-lite curl
+sudo pkg install -y python312 py312-sqlite3 py312-pyyaml git-lite curl
 ```
 
 <!-- quickstart: native-freebsd:python -->
@@ -193,7 +193,7 @@ PY=python3.12
 <!-- quickstart: native-netbsd:packages -->
 ```bash
 PKG_PATH="https://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All"
-sudo env PKG_PATH="$PKG_PATH" /usr/sbin/pkg_add python313 py313-markdown py313-yaml git-base curl
+sudo env PKG_PATH="$PKG_PATH" /usr/sbin/pkg_add python313 py313-yaml git-base curl
 ```
 
 <!-- quickstart: native-netbsd:python -->
@@ -202,7 +202,16 @@ PATH=/usr/pkg/bin:$PATH
 PY=python3.13
 ```
 
-Then (`$PY` is the Python you just set up), make the sample vault a repository and start Kura:
+Then, from the clone (step 1 of the Quickstart), `markdown` from pip in a virtual environment that also sees the packages
+you just installed (`$PY` becomes the environment's Python):
+
+<!-- quickstart: native:venv -->
+```bash
+$PY -m venv --system-site-packages .venv && .venv/bin/pip install -q 'markdown>=3.11'
+PY=.venv/bin/python
+```
+
+Then make the sample vault a repository and start Kura:
 
 <!-- quickstart: native:vault -->
 ```bash
