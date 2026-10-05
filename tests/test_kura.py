@@ -1623,6 +1623,7 @@ class StoringHister(kura.BaseHTTPRequestHandler):
     calls = []
     head = True                     # False: HEAD answers 405
     document_status = 0             # answer this status to /api/document (0: as usual)
+    add_status = 0                  # answer this status to /api/add and keep nothing (0: as usual)
 
     def log_message(self, *args):
         pass
@@ -1638,6 +1639,8 @@ class StoringHister(kura.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         StoringHister.calls.append(("POST", self.path))
         if self.path == "/api/add":
+            if StoringHister.add_status:
+                return self.answer(StoringHister.add_status, b"{}")
             StoringHister.docs[body["url"]] = body
         elif self.path == "/api/delete":
             StoringHister.docs.pop(body["query"][len('url:"'):-1].replace("%22", '"'), None)
@@ -1720,6 +1723,7 @@ class PushTest(unittest.TestCase):
     def reconciling(self):
         import push
         StoringHister.docs, StoringHister.calls, StoringHister.head, StoringHister.document_status = {}, [], True, 0
+        self.addCleanup(setattr, StoringHister, "add_status", 0)
         self.addCleanup(setattr, StoringHister, "head", True)
         self.addCleanup(setattr, StoringHister, "document_status", 0)
         srv = kura.ThreadingHTTPServer(("127.0.0.1", 0), StoringHister)
@@ -1748,13 +1752,13 @@ class PushTest(unittest.TestCase):
         self.assertTrue(p.due())
         StoringHister.calls.clear()
         r, out = self.run_all(p)
-        self.assertEqual((r["pushed"], r["complete"], p.missing), (2, True, 2))
+        self.assertEqual((r["pushed"], r["complete"], p.missing, p.restored), (2, True, 0, 2))   # found gone, sent again, back
         self.assertEqual(sorted(StoringHister.docs), sorted(set(StoringHister.docs) | set(lost)))
         self.assertTrue(set(lost) <= set(StoringHister.docs))                     # both are back
         self.assertEqual(len(StoringHister.docs), 4)
         self.assertIn("kura push: reconcile: 2 missing, re-pushed (4 checked)", out)
         self.assertEqual([c for c in StoringHister.calls if c[0] == "HEAD"].__len__(), 4)   # one cheap check per document
-        self.assertEqual(p.status()["missing"], 2)
+        self.assertEqual((p.status()["missing"], p.status()["restored"]), (0, 2))   # "missing" is what is STILL gone
         self.assertEqual(p.status()["error"], None)                              # a 404 on the check is not an error to show
         self.assertFalse(p.due())
         StoringHister.calls.clear()
@@ -1776,7 +1780,43 @@ class PushTest(unittest.TestCase):
         del StoringHister.docs[collateral]                                           # what such a delete took with it
         r, out = self.run_all(p)
         self.assertIn(collateral, StoringHister.docs)                                # healed on the very next run
-        self.assertEqual(p.missing, 1)
+        self.assertEqual((p.missing, p.restored), (0, 1))
+
+    def test_missing_counts_only_what_is_still_gone_after_the_re_push(self):
+        p = self.reconciling()
+        self.run_all(p)
+        lost = sorted(StoringHister.docs)[:3]
+        for url in lost:
+            del StoringHister.docs[url]
+        p.reconciled = None
+        StoringHister.add_status = 503                                             # Hister takes the check but not the adds
+        self.addCleanup(setattr, StoringHister, "add_status", 0)
+        r, out = self.run_all(p)
+        self.assertFalse(r["complete"])
+        self.assertEqual((p.missing, p.restored), (3, 0))                          # all three are still gone: a warning may fire
+        self.assertEqual((p.status()["missing"], p.status()["restored"]), (3, 0))
+        StoringHister.add_status = 0
+        r, out = self.run_all(p)                                                   # the next sync sends them (not due: no new check)
+        self.assertTrue(r["complete"])
+        self.assertEqual((p.missing, p.restored), (0, 3))                          # now it is 0, and the history says 3
+        self.assertTrue(set(lost) <= set(StoringHister.docs))
+        r, out = self.run_all(p)                                                   # nothing changes until the next reconcile
+        self.assertEqual((p.missing, p.restored), (0, 3))
+        p.reconciled -= 24 * 3600 + 1
+        self.run_all(p)
+        self.assertEqual((p.missing, p.restored), (0, 0))                          # a later check that finds nothing says so
+
+    def test_a_note_that_left_the_vault_is_not_missing(self):
+        p = self.reconciling()
+        self.run_all(p)
+        gone_url = sorted(StoringHister.docs)[0]
+        del StoringHister.docs[gone_url]
+        v = kura.state.vault
+        stays = [n for n in kura.pages.visible(v) if api.note_url("https://kura.test", n) != gone_url]
+        p.reconciled = None
+        with contextlib.redirect_stdout(io.StringIO()):
+            p.run([(v, stays, v.head)], [])                                        # the note is no longer in the vault
+        self.assertEqual((p.missing, p.restored), (0, 0))                          # nothing to restore, so nothing missing
 
     def test_the_check_runs_at_start_and_a_healthy_hister_costs_nothing_more(self):
         p = self.reconciling()
@@ -1805,7 +1845,7 @@ class PushTest(unittest.TestCase):
             self.assertEqual(p.h.error[:8], "HTTP %d" % status, status)
         StoringHister.document_status = 0
         r, _ = self.run_all(p)
-        self.assertEqual((r["complete"], r["pushed"], p.missing), (True, 1, 1))   # and it heals once Hister answers
+        self.assertEqual((r["complete"], r["pushed"], p.missing, p.restored), (True, 1, 0, 1))   # and it heals once Hister answers
         self.assertIn(lost, StoringHister.docs)
 
     def test_without_head_the_check_asks_with_get(self):
@@ -1817,7 +1857,7 @@ class PushTest(unittest.TestCase):
         p.reconciled = None
         StoringHister.calls.clear()
         r, _ = self.run_all(p)
-        self.assertEqual((p.missing, r["pushed"]), (1, 1))
+        self.assertEqual((p.missing, p.restored, r["pushed"]), (0, 1, 1))
         self.assertEqual(sorted({c[0] for c in StoringHister.calls if c[1] == "/api/document"}), ["GET", "HEAD"])
         self.assertFalse(p.h.head_ok)                                             # asked with GET from then on
         self.assertIn(lost, StoringHister.docs)

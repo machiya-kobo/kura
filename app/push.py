@@ -141,7 +141,9 @@ class Push:
         self.last = {}
         self.pending = True             # run on the first sync, and again after an unreachable Hister
         self.reconciled = None          # when the last complete reconcile ended (time.time()); None: not yet
-        self.missing = None             # how many documents the last reconcile found gone
+        self.missing = None             # how many documents are STILL gone after the last reconcile's re-push (None: not yet checked)
+        self.restored = None            # how many the last reconcile found gone and sent again
+        self.lost = set()               # row keys the reconcile found gone and hasn't seen restored yet
         self.reconcile_every = RECONCILE_EVERY
 
     def rows(self):
@@ -246,6 +248,7 @@ class Push:
         or the moment, or anything but 200 and 404): complete is False and the next run starts over."""
         checked = missing = 0
         started = time.monotonic()
+        self._forgotten = set()
         for k, row in sorted(self.rows().items()):
             if (row["status"] or "") != "ok" or not row["url"]:
                 continue
@@ -257,8 +260,20 @@ class Push:
             checked += 1
             if not here:
                 self.save_row(k, None, None, None)
+                self._forgotten.add(k)
                 missing += 1
         return checked, missing, True
+
+    def settle(self, jobs):
+        """After a run: of the documents a reconcile found gone, which are back (`restored`, counted up over the
+        episode) and which are still gone (`missing`, what a warning should watch). A note that has left the vault
+        since has nothing to restore and counts as neither."""
+        rows = self.rows()
+        current = {scope(v) + n.rel for v, notes, _ in jobs for n in notes}
+        back = {k for k in self.lost if (rows.get(k) or {}).get("status") == "ok"}
+        self.restored = (self.restored or 0) + len(back)
+        self.lost -= back | {k for k in self.lost if k not in current}
+        self.missing = len(self.lost)
 
     def run(self, jobs, shared):
         """jobs: [(vault, notes, head)], the default vault first, then the shared vaults that are ready; `shared`: the
@@ -270,8 +285,13 @@ class Push:
         report = None
         if checking:
             checked, gone, done = self.reconcile()
+            forgotten = self._forgotten
             if done:
-                self.reconciled, self.missing = time.time(), gone
+                self.reconciled = time.time()
+                if not self.lost:                       # a new episode: nothing from an earlier check is still unsent
+                    self.restored = 0
+                self.lost |= forgotten
+                self.missing = len(self.lost)           # until this run's re-push has been seen (settle, below)
                 report = (gone, checked)
             else:
                 complete = False                        # Hister couldn't say: the next sync checks again
@@ -283,6 +303,8 @@ class Push:
         self.pending = not complete
         self.last = dict(total, at=int(datetime.datetime.now().timestamp()), head=jobs[0][2] if jobs else "",
                          complete=complete)
+        if self.missing is not None:
+            self.settle(jobs)
         if report:
             print("kura push: reconcile: %d missing%s (%d checked)" % (report[0], ", re-pushed" if report[0] else "", report[1]),
                   flush=True)
@@ -291,4 +313,4 @@ class Push:
     def status(self):
         rows = self.rows()
         return dict(self.last, docs=len(rows), refused=sum(1 for r in rows.values() if (r["status"] or "") != "ok"),
-                    missing=self.missing, error=self.h.error or None)
+                    missing=self.missing, restored=self.restored, error=self.h.error or None)
