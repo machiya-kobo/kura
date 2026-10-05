@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.0
+
+- The Hister push heals itself. Kura sent each note once and never again unless it changed, so a document Hister lost (a cleanup, a reset) stayed lost. Now, at start and then every day, a full run asks Hister whether each note it sent is still there (`HEAD /api/document?url=…`, or GET where HEAD isn't allowed), forgets the ones that are gone, and sends them again in the same run. The log says `kura push: reconcile: N missing, re-pushed (M checked)`, and `push.missing` in `/api/status` shows the last count, so a later loss is visible. When Hister can't answer (not signed in, throttled, down) the check stops and forgets nothing; the next sync tries again.
+
 ## 0.8.1
 
 - The Hister push no longer gives up on a note for good when Hister answers 401, 403, 408, 425, 429 or 5xx (not signed in yet, no token, throttled, struggling): the run stops, and the next sync tries again. Only a refusal about the note itself (for example Hister's sensitive-content check) is kept until the note changes. Notes an older Kura marked `refused: HTTP 401…` are sent again on the next run.
