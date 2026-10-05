@@ -22,8 +22,8 @@ It clones the repository containing this script into /var/tmp/<user>/ (or $TMPDI
 afterwards: the clone, the container and its image, and any process the run left behind. The engine is Docker when it
 answers, else Podman. `--dry-run` only lists the steps. Only the standard library and git are needed.
 
-`--ssh HOST` runs a native path (or, with `--only container`, the container path with podman) on another machine (a clean VM that has only sh, tar and sudo or doas): it copies `git
-archive HEAD` of this repository there, runs the blocks in a login shell over ssh, and removes the work directory and any
+`--ssh HOST` runs a native path (or, with `--only container`, the container path with podman) on another machine (a clean VM that has only sh, tar and sudo or doas): it copies a clone of this repository (`.git` included: Quickstart step 3 serves the checkout itself, and Kura reads it
+through git) there, runs the blocks in a login shell over ssh, and removes the work directory and any
 server it started. The remote operating system is picked by `uname` (Debian, OpenBSD, FreeBSD or NetBSD). The package
 steps run unless `--skip-packages` is given. No git or Python is needed on the machine.
 
@@ -120,9 +120,11 @@ def script_lines(steps, cwd, work):
     for n, s in enumerate(steps):
         body = s["body"]
         if s["step"] == "serve":
-            body = "{\n%s\n} > %s/serve.log 2>&1 &\n%s" % (
-                body, work, "for i in $(seq 60); do curl -s http://127.0.0.1:8080/api/status | grep -q '\"ready\": true' "
-                            "&& break; sleep 1; done")
+            ready = "curl -s http://127.0.0.1:8080/api/status | grep -q '\"ready\": true'"
+            body = ("{\n%s\n} > %s/serve.log 2>&1 &\n"
+                    "for i in $(seq 60); do %s && break; sleep 1; done\n"
+                    "%s || { echo 'Kura was not ready after 60 s; the server said:'; tail -n 20 %s/serve.log; exit 1; }"
+                    % (body, work, ready, ready, work))
         script += ["echo '@@BEGIN %d@@'" % n, body, "echo '@@END %d@@'" % n]
     return script
 
@@ -216,14 +218,18 @@ def execute_ssh(args, source, log):
     local = tempfile.mkdtemp(prefix="kura-quickstart-", dir=scratch_base())
     try:
         tar, script_file = os.path.join(local, "kura.tar"), os.path.join(local, "run.sh")
-        subprocess.run(["git", "-C", source, "archive", "--format=tar", "--prefix=kura/", "-o", tar, "HEAD"], check=True)
+        # a clone, .git included (a git archive has none, and Quickstart step 3 serves the checkout itself, which Kura
+        # reads through git): the same tree the local run starts from
+        clone = os.path.join(local, "kura")
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", source, clone], check=True)
+        subprocess.run(["tar", "-cf", tar, "-C", local, "kura"], check=True)
         script = script_lines(steps, work + "/kura", work)
         open(script_file, "w").write("\n".join(script) + "\n")
         for f, dest in ((tar, work + "/kura.tar"), (script_file, work + "/run.sh")):
             subprocess.run(["scp", "-q", "-o", "BatchMode=yes", f, "%s:%s" % (host, dest)], check=True)
         remote(host, "cd %s && tar -xf kura.tar" % sh_quote(work), check=True)
         started = time.time()
-        r = remote(host, "sh -l %s/run.sh" % sh_quote(work), timeout=3600)
+        r = remote(host, "sh -l %s/run.sh 2>&1" % sh_quote(work), timeout=3600)      # stderr in its place, not after all of stdout
         text = r.stdout + r.stderr
         if log:
             log.write("==== %s over ssh to %s (%d s, exit %d)\n%s\n" % (osname, host, time.time() - started, r.returncode, text))
