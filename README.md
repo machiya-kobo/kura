@@ -27,11 +27,11 @@ sudo apt-get update && sudo apt-get install -y git curl python3-venv
 git clone https://github.com/machiya-kobo/kura.git && cd kura
 ```
 
-**2. Install its two Python packages** (`markdown` 3.7 or later and `pyyaml`) in a virtual environment:
+**2. Install its two Python packages** (`markdown` 3.11 or later and `pyyaml`) in a virtual environment:
 
 <!-- quickstart: quick:python -->
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -q 'markdown>=3.7' pyyaml
+python3 -m venv .venv && .venv/bin/pip install -q 'markdown>=3.11' pyyaml
 ```
 
 **3. Start it on the sample vault**, listening on `127.0.0.1:8080` with the identity check off (`KURA_AUTH=open`, for
@@ -74,7 +74,7 @@ of notes, if they aren't at the top). `tools/quickstart-test` runs these steps f
   and signing out anywhere ends it. A signed-out page goes to the helper's sign-in, an API call gets `401 {"error": "sign in",
   "signin": …}`, a Hister account that isn't in `KURA_HISTER_USERS` gets 403, and with the helper or Hister unreachable
   every page and call is a 503: Kura has **no Tailscale fallback** and no grace period. `/api/status` and `/api/changelog`
-  stay open. See [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md#hister-sign-in-authhister).
+  stay open. Each room keeps a cookie of its own (host-only, from a one-time code the sign-in helper hands over: the shared cookie is on its way out), and a caller that isn't a browser sends a room token (`Authorization: Bearer mht_…`, minted on the helper and good only for the rooms it names) in place of Hister's own token. See [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md#hister-sign-in-authhister).
 - Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`,
   `KURA_ACCEPT_APP_CAPS` and `KURA_PUBLIC_URL` (under Settings).
 
@@ -161,8 +161,8 @@ $DOCKER rm -f kura
 
 On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages first (a fresh
 FreeBSD or OpenBSD has no `git`; the lines below include it), then clone Kura as in step 1 of the Quickstart and run
-`app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.7 or later, `pyyaml`, SQLite with FTS5 (every package
-below has it) and `git`. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
+`app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml`, SQLite with FTS5 (every package
+below has it) and `git`. Kura refuses to start with an older `markdown` (it can run out of memory on one note under Python 3.13), and some BSD packages are older (NetBSD's is 3.10): then install it with pip in a virtual environment (`$PY -m venv --system-site-packages .venv && .venv/bin/pip install 'markdown>=3.11'`) and use `.venv/bin/python` as `$PY`. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
 
 **OpenBSD 7.9:**
 
@@ -325,6 +325,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 | `KURA_NIWA_URL`, `KURA_KONBINI_URL` | — | sister links: "View in Niwa", "View Card in Konbini" (and the Rooms switcher when `MACHIYA_ROOMS` is unset) |
 | `MACHIYA_ROOMS` | — | the Rooms switcher: `shiori=https://…,konbini=…,niwa=…,kura=…,hister=…,searxng=…` (the stack sets it); also Search's "Search everything in Shiori" |
 | `MACHIYA_COOKIE_DOMAIN` | — | share Theme, Text Size and Apps across the rooms on this domain (e.g. `example.ts.net`) |
+| `KURA_AUTH_ACCEPT_ORIGINS` | — | with `KURA_AUTH=hister`: other origins whose room sessions Kura also accepts, comma-separated `scheme://host[:port]` (Shiori's hosted pages, whose nginx passes their own room cookie on to Kura). Every check names the room, so a session from an origin not listed here is refused |
 | `MACHIYA_SSO_COOKIE` | `machiya_sso` | with `KURA_AUTH=hister`: the sign-in cookie's name (letters, digits, `_` and `-`). A second stack on the same cookie domain (a dev stack) sets its own; the rooms, the landing page and hister-login must agree |
 | `MACHIYA_SOURCE_URL` | — | a "Source" link in the footer to where this Kura's code is published (AGPL §13) |
 | `KURA_SHIORI_LINKS` | — | `1`: a note with external links shows "Save links in Shiori" (`shiori://save-links?path=<vault path>`), default vault only. Off, nothing changes |
@@ -336,7 +337,7 @@ Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it e
 
 ## Install (your own vault)
 
-Kura needs nothing from the rest of Machiya: Python 3.12 or later (the image has 3.13), `markdown` 3.7 or later, `pyyaml` and `git`, or the Docker image. It serves a git repository (or a checkout) that holds an Obsidian vault.
+Kura needs nothing from the rest of Machiya: Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml` and `git`, or the Docker image. It serves a git repository (or a checkout) that holds an Obsidian vault.
 
 **Docker, standalone** (clones the vault itself and keeps its state in `/data`):
 
@@ -353,7 +354,7 @@ docker run --init -p 127.0.0.1:8080:8080 -v kura-data:/data \
 **Native, on a checkout you already have** (read-only, no clone):
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install 'markdown>=3.7' pyyaml
+python3 -m venv .venv && .venv/bin/pip install 'markdown>=3.11' pyyaml
 mkdir -p data
 KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB="$PWD/data/kura.sqlite3" .venv/bin/python app/kura.py
 ```

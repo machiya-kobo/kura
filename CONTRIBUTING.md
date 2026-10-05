@@ -6,10 +6,10 @@ found; read it before changing the API, the vault handling or the offline code.
 
 ## Building
 
-Kura is stdlib Python plus `markdown` (3.7 or later) and `pyyaml`, and it needs `git`. There is no build step:
+Kura is stdlib Python plus `markdown` (3.11 or later) and `pyyaml`, and it needs `git`. There is no build step:
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install 'markdown>=3.7' pyyaml
+python3 -m venv .venv && .venv/bin/pip install 'markdown>=3.11' pyyaml
 mkdir -p data
 KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/a/vault KURA_DB="$PWD/data/kura.sqlite3" .venv/bin/python app/kura.py
 docker build -t kura app            # the image; it also runs the vendored-code check
