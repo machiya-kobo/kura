@@ -35,6 +35,7 @@ import search  # noqa: E402
 import shell  # noqa: E402
 from vaultkit import changelog  # noqa: E402
 from vaultkit import histerauth  # noqa: E402
+from vaultkit import websafe  # noqa: E402
 from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
@@ -170,9 +171,6 @@ SHARED_UI = ("/static/machiya.css", "/static/machiya.js", "/static/machiya-sw.js
 SIGNIN_LIMITS = {"/signin": signin.MAX_FORM, "/signout": signin.MAX_FORM, "/api/pair": signin.MAX_PAIR}
 shell.NIWA_URL = os.environ.get("KURA_NIWA_URL", "").rstrip("/")
 shell.KONBINI_URL = api.KONBINI_URL = os.environ.get("KURA_KONBINI_URL", "").rstrip("/")
-# A vault's SVG is a document that can carry script: served on its own (a link, "open image in new tab") it must not
-# run in Kura's origin, where it could read the API. In an <img> it never runs; this sandbox covers the direct request.
-SVG_CSP = ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
                ".webp": "image/webp", ".svg": "image/svg+xml"}
 STATIC_TYPES = {"kura.css": "text/css", "kura.js": "text/javascript", "mermaid.min.js": "text/javascript",
@@ -203,10 +201,9 @@ def changed_times(run, subdirs):
 
 
 def local_path(path):
-    """A redirect target that stays on this host: a path starting with one / (not //, /\\ or a control character, which
-    browsers read as another host). Anything else is /."""
-    ok = path.startswith("/") and path[1:2] not in ("/", "\\") and not any(ord(c) < 32 or c == "\x7f" for c in path)
-    return path if ok else "/"
+    """A redirect target that stays on this host: a local path (percent-encoded, with its query), never //host, /\\host or
+    a control character (vaultkit.websafe.location). Anything else is /."""
+    return websafe.location(path)
 
 
 def footer_status(site=None):
@@ -477,6 +474,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         if dict(headers).get("Content-Type", "").startswith("text/html"):
             self.send_header("Content-Security-Policy", shell.house.CSP)    # beside signin's own frame-ancestors 'none'
+        else:
+            have = {k.lower() for k, _ in headers}
+            for k, v in websafe.base_headers():
+                if k.lower() not in have:
+                    self.send_header(k, v)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD":
@@ -596,6 +598,11 @@ class Handler(BaseHTTPRequestHandler):
         if ctype.startswith("text/html"):
             for k, v in shell.house.security_headers():    # a note's HTML is cleaned; this is the second wall
                 self.send_header(k, v)
+        else:                                               # JSON, text, CSS, images, redirects (vaultkit.websafe)
+            have = {k.lower() for k, _ in headers}
+            for k, v in websafe.base_headers():
+                if k.lower() not in have:
+                    self.send_header(k, v)
         res = getattr(self, "_hres", None)
         if res is None:
             res = getattr(self, "_who", None)
@@ -723,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
             if site is None:
                 return self.send(404, pages.missing(ctx, state.default, path), headers=[NO_STORE])
             if site.default:                            # /v/<default>/n/X is /n/X
-                return self.send(301, "", "text/plain", headers=[("Location", local_path(quote(rest, safe="/")) + ("?" + url.query if url.query else ""))])
+                return self.send(301, "", "text/plain", headers=[("Location", local_path(quote(rest, safe="/") + ("?" + url.query if url.query else "")))])
             if not site.ready:
                 return self.send(503, shell.message(ctx, "Starting", "This vault is still being read. Try again in a "
                                                     "minute.", site), headers=[("Retry-After", "30"), NO_STORE])
@@ -799,12 +806,14 @@ class Handler(BaseHTTPRequestHandler):
             self.feed(query, g)
         elif path.startswith("/a/"):
             full = g.asset_path(path[3:])
-            ctype = IMAGE_TYPES.get(os.path.splitext(path)[1].lower())
-            if full and ctype:
+            if full and os.path.splitext(path)[1].lower() in IMAGE_TYPES:
                 rel = os.path.relpath(full, g.root).replace(os.sep, "/")
+                # a vault file is never a document of Kura's own origin: sandboxed (an SVG runs no script), never sniffed
+                safe = websafe.asset_headers(rel)
+                ctype = next(v for k, v in safe if k == "Content-Type")
                 with open(full, "rb") as f:
                     self.send(200, f.read(), ctype, headers=(self.hold(g, rel) or [("Cache-Control", "max-age=86400")])
-                              + [("X-Content-Type-Options", "nosniff")] + ([SVG_CSP] if ctype == "image/svg+xml" else []))
+                              + [(k, v) for k, v in safe if k != "Content-Type"])
             else:
                 self.send(404, "not found\n", "text/plain", headers=self.hold(g))
         else:

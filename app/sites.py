@@ -52,6 +52,8 @@ class Source:
 
     def update(self):
         self.head = self.git.update()[0] if self.mirror else self.git.head()
+        if self.mirror and self.git.failed:     # the clone, fetch or reset didn't reach the remote: not "synced" (MACH-F-4)
+            raise RuntimeError("the remote could not be reached: %s" % self.git.failed)
         return self.head
 
 

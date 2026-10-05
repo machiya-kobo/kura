@@ -1,8 +1,7 @@
 # Kura (machiya-kobo/kura): stdlib Python + markdown + pyyaml + git. Runs as uid 1000.
 FROM public.ecr.aws/docker/library/python:3.13-slim
 
-# markdown and pyyaml are pinned to what the tests ran on (a native install may use markdown >= 3.7: the BSD packages
-# ship 3.7-3.10).
+# markdown and pyyaml are pinned to what the tests ran on (vaultkit refuses markdown older than 3.11).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
  && rm -rf /var/lib/apt/lists/* \

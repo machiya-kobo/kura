@@ -86,6 +86,7 @@ import search      # noqa: E402
 import sites       # noqa: E402
 import api         # noqa: E402
 from vaultkit import histerauth  # noqa: E402
+from vaultkit import websafe  # noqa: E402
 from vaultkit import identity  # noqa: E402
 
 kura.state.sync()
@@ -379,8 +380,12 @@ class AuthTest(unittest.TestCase):
     def test_redirects_stay_on_this_host(self):
         for good in ("/", "/n/X", "/v/work/n/A%20B", "/search"):
             self.assertEqual(kura.local_path(good), good)
-        for bad in ("", "//evil.test", "/\\evil.test", "evil.test", "https://evil.test/", "/\tevil", "/x\ny", "/x\x7f"):
+        for bad in ("", "//evil.test", "/\\evil.test", "evil.test", "https://evil.test/"):
             self.assertEqual(kura.local_path(bad), "/", repr(bad))
+        for odd in ("/\tevil", "/x\ny", "/x\x7f", "/a b", "/町家"):              # still a local path, percent-encoded (websafe.location)
+            out = kura.local_path(odd)
+            self.assertTrue(out.startswith("/") and not out.startswith("//"), repr(odd))
+            self.assertFalse(any(ord(c) < 33 or ord(c) > 126 for c in out), repr(out))
         st, h, _ = fetch("/v/personal//evil.test/n/X")
         self.assertEqual((st, h["Location"]), (301, "/"))                 # was //evil.test/n/X: off-site
         st, h, _ = fetch("/v/personal/n/X")
@@ -927,10 +932,12 @@ class SweepTest(unittest.TestCase):
             status, h, body = fetch(path)
             self.assertEqual(status, 200, path)
             self.assertEqual(h["Content-Type"], "image/svg+xml", path)
-            self.assertEqual(h["Content-Security-Policy"], "default-src 'none'; style-src 'unsafe-inline'; sandbox", path)
+            self.assertEqual(h["Content-Security-Policy"], websafe.ASSET_CSP, path)
+            self.assertIn("sandbox", h["Content-Security-Policy"])
+            self.assertEqual(h["X-Frame-Options"], "SAMEORIGIN", path)
             self.assertEqual(h["X-Content-Type-Options"], "nosniff", path)
         self.assertEqual(fetch("/a/pic.png")[1]["X-Content-Type-Options"], "nosniff")
-        self.assertNotIn("Content-Security-Policy", fetch("/a/pic.png")[1])
+        self.assertIn("sandbox", fetch("/a/pic.png")[1]["Content-Security-Policy"])    # websafe.asset_headers: every vault file
         self.assertEqual(fetch("/static/icons/kura.svg")[0], 200)                 # Kura's own icons stay as they are
 
     def test_api_answers_are_never_stored_except_what_is_public_by_design(self):    # KURA-3
@@ -1049,6 +1056,45 @@ class SweepTest(unittest.TestCase):
         again.settimeout(3)
         self.assertTrue(again.recv(20).startswith(b"HTTP/"))                       # accepted and served
         self.assertNotIn("Traceback", log.getvalue())                              # a cut-off client is not an error to log
+
+    def test_every_answer_carries_the_base_headers(self):                      # websafe.base_headers (v0.22)
+        for path in ("/api/status", "/api/search?q=tea", "/api/changelog", "/feed.xml", "/static/kura.css", "/sw.js",
+                     "/a/pic.png", "/static/icons/kura.svg", "/api/nope", "/v/personal/n/X", "/theme?set=day"):
+            status, h, _ = fetch(path)
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff", path)
+            self.assertEqual(h["X-Frame-Options"], "SAMEORIGIN", path)
+            self.assertEqual(h["Referrer-Policy"], "same-origin", path)
+            self.assertEqual(len(h.get_all("X-Content-Type-Options")), 1, path)      # not added twice
+
+    def test_a_failed_fetch_is_not_reported_as_synced(self):                   # MACH-F-4
+        import sites
+
+        class Failing:
+            failed = "fetch failed: could not resolve host"
+
+            def update(self):
+                return "abc123", False
+        src = sites.Source(Failing(), "/x", True)
+        with self.assertRaises(RuntimeError) as cm:
+            src.update()
+        self.assertIn("could not resolve host", str(cm.exception))
+        Failing.failed = ""
+        self.assertEqual(sites.Source(Failing(), "/x", True).update(), "abc123")
+        work = kura.state.by_name["work"]
+        src = work.checkout
+        old = src.update
+        try:
+            def refuse():
+                raise RuntimeError("the remote could not be reached: boom")
+            src.update = refuse
+            kura.state.sync()
+            self.assertIn("boom", work.error or "")                            # the vault says so, and keeps serving
+            self.assertEqual(get("/v/work/n/Runbooks/Zebrafish%20deploy")[0], 200)
+            self.assertNotIn("boom", get("/api/status", user=None)[1])        # the open view names no cause
+        finally:
+            src.update = old
+            kura.state.sync()
+        self.assertIsNone(work.error)
 
     def test_the_access_log_has_no_query_string(self):                         # KURA-11
         log = io.StringIO()
@@ -1184,11 +1230,14 @@ class HisterModeTest(unittest.TestCase):
     def test_signed_out_a_page_goes_to_the_helper_and_an_api_call_gets_401_json(self):
         status, headers, _ = self.call("/n/Notes/Tea%20brewing")
         self.assertEqual(status, 302)                                   # the Tailscale login opens nothing
-        self.assertEqual(headers["Location"], self.SIGNIN + "?return=https%3A%2F%2Fkura.test%2Fn%2FNotes%2FTea%2520brewing")
-        self.assertIn("machiya_sso_try=1", headers["Set-Cookie"])
+        self.assertRegex(headers["Location"], "^" + re.escape(self.SIGNIN + "?return=https%3A%2F%2Fkura.test%2Fn%2FNotes%2FTea%2520brewing&state=") + "[A-Za-z0-9_-]{43}$")
+        cookies = " ".join(headers.get_all("Set-Cookie"))
+        self.assertIn("__Host-machiya_sso_kura_try=1", cookies)         # the room's own host-only loop guard and trip nonce
+        self.assertIn("__Host-machiya_sso_kura_state=", cookies)
+        self.assertNotIn("Domain=", cookies)
         self.assertEqual(headers["Cache-Control"], "no-store")
         # the loop guard: the trip didn't stick, so a page with a link, not another redirect
-        status, headers, body = self.call("/", headers={"Cookie": "machiya_sso_try=1"})
+        status, headers, body = self.call("/", headers={"Cookie": "__Host-machiya_sso_kura_try=1"})
         self.assertEqual(status, 401)
         self.assertIn(self.SIGNIN, body)
         self.assertNotIn("Work Notes", body)                            # nothing about the vaults to a stranger
@@ -1230,7 +1279,7 @@ class HisterModeTest(unittest.TestCase):
                 status, h, body = self.call(path, headers=headers)
                 self.assertEqual(status, 401, (path, headers))
                 self.assertNotIn("Location", h, (path, headers))
-                self.assertNotIn("machiya_sso_try", h.get("Set-Cookie") or "", (path, headers))   # no loop guard: nothing was redirected
+                self.assertNotIn("_try=", " ".join(h.get_all("Set-Cookie") or []), (path, headers))   # no loop guard: nothing was redirected
                 self.assertEqual(json.loads(body)["error"], "sign in", (path, headers))
                 self.assertNotIn("Zebrafish", body)
         status, h, _ = self.call("/n/Notes/Tea%20brewing", headers={"Cookie": "machiya_sso=" + SID_STRANGER})
@@ -1376,6 +1425,10 @@ class HisterModeTest(unittest.TestCase):
         kura.AUTH = "hister"
         auth = kura.hister_auth(env, "0.0.0.0", True)
         self.assertEqual((auth.fallback, sorted(auth.users)), ("none", ["owner"]))
+        auth = kura.hister_auth(dict(env, KURA_AUTH_ACCEPT_ORIGINS="https://shiori-hosted.test, https://kura.test"), "0.0.0.0", True)
+        self.assertEqual(auth.audiences, ["https://kura.test", "https://shiori-hosted.test"])   # the hosted pages' room sessions
+        with self.assertRaises(SystemExit):
+            kura.hister_auth(dict(env, KURA_AUTH_ACCEPT_ORIGINS="https://x.test/path"), "0.0.0.0", True)
         for bad in ({"KURA_AUTH_FALLBACK": "tailscale"}, {"KURA_PUBLIC_URL": ""}, {"KURA_HISTER_USERS": ""},
                     {"KURA_HISTER_USERS": "*"}, {"KURA_AUTH_URL": ""}, {"KURA_AUTH_SIGNIN_URL": ""}):
             with self.assertRaises(SystemExit, msg=bad):
