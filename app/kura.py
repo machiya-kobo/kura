@@ -298,7 +298,7 @@ class State:
                     self.push.pending = True
             site.head, site.synced_at, site.error = head, int(time.time()), None
         self.loop_error = None
-        if self.push and self.push.pending and self.default.ready:
+        if self.push and self.push.due() and self.default.ready:
             self.push.run([(x, pages.visible(x), x.head) for x in self.sites if not x.private and x.ready],
                           [x.name for x in self.sites if x.shared])
 

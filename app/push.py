@@ -15,6 +15,10 @@ find notes next to the pages they cite. Notes stay in Hister once pushed; Shiori
   longer shared (made private, renamed or removed from KURA_VAULTS): fail closed.
 - Hister's skip rules are expected to refuse the rooms' own hosts (the extension must never capture Kura/Konbini/Niwa
   pages); vault documents carry metadata.ignore_skip_rules, the per-document override.
+- Reconcile: Hister can lose documents Kura believes it holds (a cleanup, a reset), and an unchanged note is never
+  sent again. So a full run checks each `ok` row against Hister (`HEAD /api/document?url=`; GET if HEAD isn't
+  allowed) at start and then daily, forgets the rows whose document is gone, and the same run sends them again
+  (`push.missing` in /api/status is the last count). A caller-or-moment failure stops the check, as it stops a push.
 - Every Hister call sends `Origin: hister://`. The default vault and the shared vaults are pushed, nothing else.
 - With KURA_HISTER_TOKEN_FILE every call also sends the owner's Hister token as `X-Access-Token`. The file is read on
   every call through vaultkit's histerauth.hister_headers (a regenerated token needs no restart); a file that is set
@@ -29,13 +33,17 @@ import os
 import re
 import sqlite3
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import api
 import search
 from vaultkit import histerauth
 
+RECONCILE_EVERY = 24 * 3600        # seconds between checks that Hister still holds what Kura sent
+RECONCILE_LIMIT = 300              # seconds a check may take before it stops (the next run starts over)
 RETRY_HTTP = (401, 403, 408, 425, 429)     # about the caller or the moment, not the note: never "refused"
 RETRY_ROW = re.compile(r"^refused: (hister unreachable|HTTP (401|403|408|425|429|5[0-9]{2})\b)")
 LABEL = "vault"
@@ -61,6 +69,7 @@ class Hister:
         self.token_file = token_file
         self.error = ""
         self.retry = False          # the last call failed for a reason that isn't about the document (try again later)
+        self.head_ok = True         # HEAD /api/document works (else GET)
 
     def call(self, method, path, body=None, timeout=30):
         self.retry = False
@@ -89,6 +98,21 @@ class Hister:
         status, _ = self.call("POST", "/api/add", doc)
         return 200 <= status < 300
 
+    def exists(self, url):
+        """Is this exact URL a document in Hister? True or False; None when Hister can't say now (self.retry, or an
+        answer that is neither 200 nor 404): the caller stops."""
+        path = "/api/document?url=" + urllib.parse.quote(url, safe="")
+        status, _ = self.call("HEAD" if self.head_ok else "GET", path)
+        if self.head_ok and status in (405, 501):               # no HEAD here: ask with GET from now on
+            self.head_ok = False
+            status, _ = self.call("GET", path)
+        if status == 200:
+            return True
+        if status == 404:
+            self.error = ""                                     # "not there" is an answer, not an error to show
+            return False
+        return None
+
     def delete(self, url):
         status, _ = self.call("POST", "/api/delete", {"query": 'url:"%s"' % url.replace('"', "%22")})
         return 200 <= status < 300
@@ -116,6 +140,9 @@ class Push:
         self.lock = threading.Lock()
         self.last = {}
         self.pending = True             # run on the first sync, and again after an unreachable Hister
+        self.reconciled = None          # when the last complete reconcile ended (time.time()); None: not yet
+        self.missing = None             # how many documents the last reconcile found gone
+        self.reconcile_every = RECONCILE_EVERY
 
     def rows(self):
         with self.lock:
@@ -205,12 +232,45 @@ class Push:
             print("kura push: withdrew %d notes of vaults that are no longer shared" % deleted, flush=True)
         return deleted, complete
 
+    def due(self):
+        """Is a run needed: something to send again, or the reconcile is due (at start, then daily)."""
+        return self.pending or self.reconciled is None or time.time() - self.reconciled >= self.reconcile_every
+
+    def reconcile(self):
+        """Check every `ok` row against Hister and forget the rows whose document is gone, so the run that follows sends
+        them again. -> (checked, missing, complete). Stops at once when Hister can't answer (a failure about the caller
+        or the moment, or anything but 200 and 404): complete is False and the next run starts over."""
+        checked = missing = 0
+        started = time.monotonic()
+        for k, row in sorted(self.rows().items()):
+            if (row["status"] or "") != "ok" or not row["url"]:
+                continue
+            if time.monotonic() - started > RECONCILE_LIMIT:
+                return checked, missing, False
+            here = self.h.exists(row["url"])
+            if here is None:
+                return checked, missing, False
+            checked += 1
+            if not here:
+                self.save_row(k, None, None, None)
+                missing += 1
+        return checked, missing, True
+
     def run(self, jobs, shared):
         """jobs: [(vault, notes, head)], the default vault first, then the shared vaults that are ready; `shared`: the
         names of every shared vault configured (one still being read keeps its documents). Withdraws first, then
         pushes each vault. Returns the summary of the whole run."""
         deleted, complete = self.withdraw(set(shared))
         total = {"pushed": 0, "deleted": deleted, "failed": 0}
+        checking = complete and (self.reconciled is None or time.time() - self.reconciled >= self.reconcile_every)
+        report = None
+        if checking:
+            checked, gone, done = self.reconcile()
+            if done:
+                self.reconciled, self.missing = time.time(), gone
+                report = (gone, checked)
+            else:
+                complete = False                        # Hister couldn't say: the next sync checks again
         for vault, notes, head in jobs:
             r = self.run_once(vault, notes, head)
             for k in total:
@@ -219,9 +279,12 @@ class Push:
         self.pending = not complete
         self.last = dict(total, at=int(datetime.datetime.now().timestamp()), head=jobs[0][2] if jobs else "",
                          complete=complete)
+        if report:
+            print("kura push: reconcile: %d missing%s (%d checked)" % (report[0], ", re-pushed" if report[0] else "", report[1]),
+                  flush=True)
         return self.last
 
     def status(self):
         rows = self.rows()
         return dict(self.last, docs=len(rows), refused=sum(1 for r in rows.values() if (r["status"] or "") != "ok"),
-                    error=self.h.error or None)
+                    missing=self.missing, error=self.h.error or None)
