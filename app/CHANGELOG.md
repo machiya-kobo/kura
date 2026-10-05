@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.1
+
+- Takes vaultkit 0.22.1: in an installed app, pull to refresh now moves the page's content with the finger.
+- After Kura deletes a note's document from Hister (a note deleted, renamed or withdrawn), the next run checks again that every other note is still there and sends any that went missing. Hister's delete takes a query, and a query for one note's address may match more than that one document.
+
 ## 0.9.0
 
 - The Hister push heals itself. Kura sent each note once and never again unless it changed, so a document Hister lost (a cleanup, a reset) stayed lost. Now, at start and then every day, a full run asks Hister whether each note it sent is still there (`HEAD /api/document?url=…`, or GET where HEAD isn't allowed), forgets the ones that are gone, and sends them again in the same run. The log says `kura push: reconcile: N missing, re-pushed (M checked)`, and `push.missing` in `/api/status` shows the last count, so a later loss is visible. When Hister can't answer (not signed in, throttled, down) the check stops and forgets nothing; the next sync tries again.
