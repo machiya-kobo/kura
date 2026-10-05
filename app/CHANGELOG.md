@@ -4,6 +4,12 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.8.1
+
+- The Hister push no longer gives up on a note for good when Hister answers 401, 403, 408, 425, 429 or 5xx (not signed in yet, no token, throttled, struggling): the run stops, and the next sync tries again. Only a refusal about the note itself (for example Hister's sensitive-content check) is kept until the note changes. Notes an older Kura marked `refused: HTTP 401…` are sent again on the next run.
+- A vault mirror runs git with a fixed author and committer, so a host whose own name doesn't resolve no longer stalls every sync for over a minute. A failed update now says "the vault could not be updated" and what git said, not that the remote could not be reached.
+- README: the BSD install blocks leave the packaged `markdown` out (all older than 3.11) and install it with pip in a virtual environment.
+
 ## 0.8.0
 
 Takes vaultkit 0.22 (the sweep's shared fixes and the room sessions).
