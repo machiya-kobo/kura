@@ -4,6 +4,17 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.8.0
+
+Takes vaultkit 0.22 (the sweep's shared fixes and the room sessions).
+
+- Needs `markdown` 3.11 or later: vaultkit refuses to start with an older one, which can run out of memory on one note under Python 3.13. The image has it; on a BSD whose package is older, install it with pip in a virtual environment (README).
+- Symlinks in a vault are skipped (a committed link can no longer read a file outside the vault), and the vault is cloned with `core.symlinks=false`.
+- A vault that couldn't be fetched says so and keeps serving its last good copy, instead of reporting "synced".
+- Every answer that isn't a page carries `nosniff`, `X-Frame-Options` and `Referrer-Policy`; vault images are served sandboxed by vaultkit's rules; redirects built from a request are percent-encoded local paths.
+- Hister sign-in (`KURA_AUTH=hister`): Kura keeps a cookie of its own (host-only, from a one-time code the helper hands over; the shared `machiya_sso` is being retired), takes room tokens (`Authorization: Bearer mht_…`) in place of Hister's own token, and `KURA_AUTH_ACCEPT_ORIGINS` lists other origins whose room sessions it also accepts (Shiori's hosted pages). Inert until the helper switches.
+- Menus close when you come back to a page, and an installed app can pull down to refresh.
+
 ## 0.7.2
 
 - Kura accepts at most 64 connections at once and closes any connection still open after two minutes, so one client holding connections open (a byte at a time) can't use up every thread.
