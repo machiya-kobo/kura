@@ -207,6 +207,9 @@ class Push:
                 if self.h.delete(known[rel]["url"]) or not self.h.error:
                     self.save_row(key + rel, None, None, None)
                     deleted += 1
+        if deleted:
+            self.reconciled = None      # a delete-by-query may take more than its one document (Hister's url:"…" is a
+                                        # query): the next run checks that everything else is still there
         self.pending = not complete
         self.last = {"at": int(datetime.datetime.now().timestamp()), "pushed": pushed, "deleted": deleted,
                      "failed": failed, "head": head, "complete": complete}
@@ -229,6 +232,7 @@ class Push:
                 self.save_row(k, None, None, None)
                 deleted += 1
         if deleted:
+            self.reconciled = None      # as after a note's delete: check the rest next run
             print("kura push: withdrew %d notes of vaults that are no longer shared" % deleted, flush=True)
         return deleted, complete
 

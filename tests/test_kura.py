@@ -1761,6 +1761,23 @@ class PushTest(unittest.TestCase):
         r, out = self.run_all(p)                                                  # not due: nothing sent, nothing asked
         self.assertEqual((r["pushed"], StoringHister.calls), (0, []))
 
+    def test_a_delete_makes_the_next_run_check_everything_else(self):
+        p = self.reconciling()
+        self.run_all(p)
+        self.assertFalse(p.due())
+        v = kura.state.vault
+        notes = [n for n in kura.pages.visible(v) if n.rel != "MOC/Crafts.md"]        # a note is deleted
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = p.run_once(v, notes)
+        self.assertEqual(r["deleted"], 1)
+        self.assertIsNone(p.reconciled)                                              # a delete-by-query may take more than one
+        self.assertTrue(p.due())
+        collateral = next(u for u in StoringHister.docs if u.endswith("Lantern"))
+        del StoringHister.docs[collateral]                                           # what such a delete took with it
+        r, out = self.run_all(p)
+        self.assertIn(collateral, StoringHister.docs)                                # healed on the very next run
+        self.assertEqual(p.missing, 1)
+
     def test_the_check_runs_at_start_and_a_healthy_hister_costs_nothing_more(self):
         p = self.reconciling()
         self.run_all(p)
