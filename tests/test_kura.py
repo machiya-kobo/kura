@@ -318,15 +318,19 @@ class ShellTest(unittest.TestCase):
         status, headers, body = fetch("/settings")
         self.assertEqual(status, 200)
         sections = re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body)
-        self.assertEqual(sections, ["Shared", "Reading", "This Device", "About"])      # vaultkit's order (docs/ui.md)
-        for want in ("Theme", "Appearance", "Text Size", "Preview Pane", 'data-set="previewPane" data-cookie',
-                     "Use This Device&#x27;s Size", "Obsidian Vault", "Offline Copies", "a note picked in a list opens beside it.",
+        self.assertEqual(sections, ["Appearance", "Reading", "Rooms", "This Device", "About"])  # vaultkit's order (docs/ui.md)
+        for want in ("Theme", "Mode", "Text Size", "Preview Pane", 'data-set="previewPane" data-cookie',
+                     "Use This Device's Size", "Obsidian Vault", "Offline Copies", "a note picked in a list opens beside it.",
                      'data-prefs-state="room"', 'name="machiya-app-prefs"', "kura.preview_pane"):
             self.assertIn(want, body)
         self.assertNotIn("<h2 id=\"display\">", body)
-        reading = body[body.index('id="reading"'):body.index('id="this-device"')]
-        self.assertNotIn("Obsidian Vault", reading)                                 # a device row now
+        reading = body[body.index('id="reading"'):body.index('id="rooms"')]
+        self.assertIn("Obsidian Vault", reading)                                    # this device's, beside Preview Pane
+        self.assertIn('Obsidian Vault<small class="value">This device</small>', reading)
         self.assertNotIn("Offline Copies", reading)
+        device = body[body.index('id="this-device"'):body.index('id="about"')]
+        self.assertIn("Offline Copies", device)
+        self.assertNotIn("Obsidian Vault", device)
 
     def test_service_worker(self):
         _, headers, body = fetch("/sw.js")
@@ -1345,9 +1349,9 @@ class HisterModeTest(unittest.TestCase):
     def test_settings_name_the_account_and_have_a_sign_out(self):
         _, _, body = self.call("/settings", headers=self.cookie(), tailscale=False)
         self.assertIn('data-prefs-state="account"', body)
-        self.assertIn("Signed in as owner. Saved to your account.", body)
+        self.assertIn("Saved to your account.", body)
         self.assertIn('<form class="item" method="post" action="/signout"><span>Signed in as owner</span>', body)
-        self.assertEqual(re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body), ["Shared", "Reading", "This Device", "Account", "About"])
+        self.assertEqual(re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body), ["Appearance", "Reading", "Rooms", "This Device", "Account", "About"])
         _, _, body = self.call("/settings", headers={"X-Access-Token": HISTER_TOKEN}, tailscale=False)
         self.assertIn('data-prefs-state="account"', body)
         self.assertNotIn("action=\"/signout\"", body)                                  # a token has nothing to sign out of

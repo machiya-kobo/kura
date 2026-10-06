@@ -236,15 +236,16 @@ def preview_pane(ctx):
 
 
 def settings(ctx, version, status_text, vaultkit, account="", prefs_state="standalone", who=""):
-    """vaultkit's Settings order (docs/ui.md): Shared, Kura's Reading, This Device, Account, About. `prefs_state`: where
-    the Shared choices are kept (histerauth.prefs_state, "room" for Kura's own store, else "standalone"); `who`: the
+    """vaultkit's Settings order (docs/ui.md; settings_page sorts them): Appearance, Kura's Reading (Preview Pane, and
+    this device's Obsidian Vault), Rooms, This Device (Offline Copies), Account, About. `prefs_state`: where
+    the Appearance choices are kept (histerauth.prefs_state, "room" for Kura's own store, else "standalone"); `who`: the
     signed-in name for its line. `account`: the principal's name when this request came with a sign-in session; it gets
     a Sign Out button."""
-    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True)],
-               "On wide screens, a note picked in a list opens beside it.")
-    device = house.device_section(
-        ctx, [house.offline_row(), house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault")],
-        "Obsidian Vault adds Edit in Obsidian links. Archive/ notes are never kept offline.")
+    obsidian = house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault").replace(   # not in APP_PREFS: stays
+        "<span>Obsidian Vault</span>", '<span>Obsidian Vault<small class="value">This device</small></span>', 1)  # here
+    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True), obsidian],
+               "On wide screens, a note picked in a list opens beside it. Obsidian Vault adds Edit in Obsidian links.")
+    device = house.device_section(ctx, [house.offline_row()], "Archive/ notes are never kept.")
     signed_in = None
     if account:         # a plain form: sign-out is a same-origin POST (vaultkit.signin), and works without JavaScript
         signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
