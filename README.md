@@ -1,15 +1,15 @@
-# Kura 蔵
+# Kura
 
-**Every note in the vault, with working links, full-text search and a JSON API.** Kura (the storehouse) is part of [Machiya](https://github.com/machiya-kobo/machiya). It's the vault's web home, where every note link lands, and the note source for Shiori.
+Machiya is a set of small self-hosted apps for finding what you've read: your pages (Hister), the web (SearXNG), your notes (an Obsidian vault in git) and your code.
 
-**Machiya** is a set of small self-hosted apps around one Obsidian vault; each app is a **room** (Kura is the room that reads and searches every note), and the rooms share one look and one set of settings. The **owner** is the person whose vault it is, the only one Kura serves. The Machiya repository has the architecture, the principles and the API contract.
+Kura (蔵, storehouse) is the Machiya app that reads your notes. It shows every note in your vault with working links, full-text search and a JSON API. Every note link lands here, and Shiori, the search app, gets its notes from Kura. The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract.
 
-- A reader with three columns on wide screens (folders | notes | preview), two on tablets, and one plus a tab bar on phones. It's the room `kura` (蔵, orange) in Machiya's shared shell: Tokyo Night / Day, the Rooms switcher, a footer status line and `/settings` (Appearance; Reading: Preview Pane, Obsidian Vault, Offline Copies; Rooms; About).
-- **Other vaults.** With `KURA_VAULTS`, more vaults (say `work`, `client` or `team`) are readable and searchable next to the default one: the default lives at `/n/…` as always, every other vault at `/v/<name>/…` with a vault chip and a switch in the header. A vault is **private** unless it's marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device (`Cache-Control: no-store`, network-only in the service worker), no external links and no feed. A **shared** vault is treated like the default one at its `/v/<name>/` addresses: kept for offline reading (`offline: true` counts), external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those rooms read the default vault only), and both stay invisible to the API unless a client asks with `vault=`. See "Vaults" in the API contract.
+- A reader with three columns on wide screens (folders | notes | preview), two on tablets, and one plus a tab bar on phones, in Tokyo Night or Day with Kura's orange accent, a switcher to the other Machiya apps and a status line in the footer.
+- **Other vaults.** With `KURA_VAULTS`, you can read and search more vaults (say `work`, `client` or `team`) next to the default one: the default lives at `/n/…` as always, every other vault at `/v/<name>/…` with a vault chip and a switch in the header. A vault is **private** unless it's marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device (`Cache-Control: no-store`, network-only in the service worker), no external links and no feed. A **shared** vault is treated like the default one at its `/v/<name>/` addresses: kept for offline reading (`offline: true` counts), external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those apps read the default vault only), and both stay invisible to the API unless a client asks with `vault=`. See "Vaults" in the API contract.
 - Installable as a PWA with offline reading: the shared service worker keeps the 200 notes read last, and every note with `offline: true` for good (listed at `/api/offline`, fetched ahead). Pages under `Archive/` answer `Cache-Control: no-store` and are never kept on a device.
 - Every `[[wikilink]]` works, with backlinks from the whole vault, folder and tag browsing (nested tags included), and recently changed.
 - Full-text search (SQLite FTS5): phrases, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:`, ranked by bm25 with titles first.
-- A JSON API for Shiori and anything else: `/api/search`, `/api/notes`, `/api/note` (with `external_links`, the note body's http, https, gemini and gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. The contract is `docs/contracts/kura-api.md` in the Machiya repository.
+- A JSON API for Shiori and anything else: `/api/search`, `/api/notes`, `/api/note` (with `external_links`, the note body's http, https, Gemini and Gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. The contract is `docs/contracts/kura-api.md` in the Machiya repository.
 
 ## Quickstart
 
@@ -61,6 +61,8 @@ Ctrl-C stops it. To read your own vault, point `KURA_REPO_DIR` at its checkout (
 of notes, if they aren't at the top). `tools/quickstart-test` runs these steps from a fresh clone and checks the output.
 
 ## Who can use it
+
+Kura serves one person: you, the **owner**, whose vault it is.
 
 - **You, on localhost:** `KURA_AUTH=open` with `KURA_BIND=127.0.0.1`, as in the Quickstart. Kura then answers only to an
   IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS`.
@@ -265,7 +267,7 @@ output shown, so the README and the test cannot drift: `tools/quickstart-test --
 
 ### As part of the Machiya stack
 
-Machiya is several small apps around one vault. To run Kura next to the others, clone `machiya`, `kura`, `niwa` and
+Machiya is several small apps around one vault. Each app is a **room** (Kura is the one that reads and searches every note), and the rooms share one look and one set of settings. To run Kura next to the others, clone `machiya`, `kura`, `niwa` and
 `konbini` side by side and follow the [Quickstart in the Machiya repository's README](https://github.com/machiya-kobo/machiya#quickstart):
 `compose/demo-init` prepares the sample vault and a `.env`, and `docker compose up -d --build` brings up the whole stack
 (Hister and SearXNG for search, Kura, Niwa, Konbini). `demo-init --mirror` keeps a single copy of the vault for all of them
@@ -307,6 +309,8 @@ On a phone (390 × 844) the reader is one column with a tab bar:
 Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it every `KURA_POLL` seconds. Its index lives in memory and is rebuilt whenever the commit changes; a few hundred notes take under a second. With `KURA_HISTER_URL` it also pushes every note into Hister (label `vault`, each note under its Kura URL), remembering what it sent in `KURA_DB`. That's the only other state, with the preferences (theme and text size, `prefs.sqlite3` next to it): lose `/data` and Kura clones again and re-sends every note once (and those preferences are gone). Niwa, Konbini and Hister are optional, and Kura never writes to the vault.
 
 ## Settings
+
+The `/settings` page has Appearance, Reading (Preview Pane, Obsidian Vault, Offline Copies), Rooms and About. You set everything else in the environment:
 
 | Env | Default | |
 |---|---|---|
