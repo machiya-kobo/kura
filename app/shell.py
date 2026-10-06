@@ -242,7 +242,7 @@ def settings(ctx, version, status_text, vaultkit, account="", prefs_state="stand
     signed-in name for its line. `account`: the principal's name when this request came with a sign-in session; it gets
     a Sign Out button."""
     obsidian = house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault").replace(   # not in APP_PREFS: stays
-        "<span>Obsidian Vault</span>", '<span>Obsidian Vault<small class="value">This device</small></span>', 1)  # here
+        "<span>Obsidian Vault</span>", '<span class="stacked">Obsidian Vault<small class="value">This device</small></span>', 1)  # here
     reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True), obsidian,
                            house.offline_row()],
                "On wide screens, notes open beside the list. Obsidian Vault (for Edit in Obsidian) and Offline Copies "

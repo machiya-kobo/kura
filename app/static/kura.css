@@ -122,3 +122,6 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
   .kgrid.kwide { grid-template-columns: 230px minmax(0, 1fr); }   /* the tag index, or Preview Pane off */
   .kgrid.kwide .klist { border-right: 0; }
 }
+/* Settings: a note under a row's label (Obsidian Vault's "This device"), laid out like Offline Copies' count */
+.settings .item > span.stacked { display: grid; gap: 2px; }
+.settings .item > span.stacked small.value { text-align: left; font-size: var(--fs-xs); }

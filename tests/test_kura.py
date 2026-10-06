@@ -326,7 +326,7 @@ class ShellTest(unittest.TestCase):
         self.assertNotIn("<h2 id=\"display\">", body)
         reading = body[body.index('id="reading"'):body.index('id="rooms"')]
         self.assertIn("Obsidian Vault", reading)                                    # this device's, beside Preview Pane
-        self.assertIn('Obsidian Vault<small class="value">This device</small>', reading)
+        self.assertIn('<span class="stacked">Obsidian Vault<small class="value">This device</small>', reading)
         self.assertIn("Offline Copies", reading)                                    # a lone device row folds in here
         self.assertNotIn('id="this-device"', body)
 
