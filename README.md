@@ -5,7 +5,7 @@ Machiya is a set of small self-hosted apps for finding what you've read: your pa
 Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in your Obsidian vault, with working links, full-text search and a JSON API.
 
 <p align="center">
-<a href="https://machiya-kobo.github.io/machiya/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="#who-can-use-it">Who Can Use It</a> · <a href="#with-a-container-docker-or-podman">Container</a> · <a href="#natively-on-the-bsds">BSDs</a> · <a href="#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="#settings">Settings</a> · <a href="#install-your-own-vault">Install</a> · <a href="#licence">Licence</a>
+<a href="https://machiya-kobo.github.io/machiya/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="#who-can-use-it">Who Can Use It</a> · <a href="#with-a-container-docker-or-podman">Container</a> · <a href="#natively-on-the-bsds">BSDs</a> · <a href="#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="#settings">Settings</a> · <a href="#install-your-own-vault">Install</a> · <a href="#license">License</a>
 </p>
 
 <p><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a></p>
@@ -395,10 +395,10 @@ KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB="$PWD/da
 - `tools/screenshots`: retakes the README's screenshots from the sample vault
 - `skills/kura/`: a short agent skill for finding and reading notes through the API
 
-## Licence
+## License
 
 Copyright (C) 2026 Micheal Waltz and Machiya contributors.
 
 Kura is free software: GNU Affero General Public License, version 3 or (at your option) any later version.
 See `LICENSE`. Third-party software it ships or installs (Mermaid, Python Markdown, PyYAML) is listed with its
-licences in `THIRD_PARTY_NOTICES`.
+licenses in `THIRD_PARTY_NOTICES`.
