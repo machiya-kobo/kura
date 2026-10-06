@@ -21,6 +21,14 @@ Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in y
 
 The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract (`docs/contracts/kura-api.md`).
 
+**Contents**
+
+- [Quickstart](#quickstart)
+- [Who can use it](#who-can-use-it)
+- [More ways to run it](#more-ways-to-run-it): [with a container](#with-a-container-docker-or-podman), [natively on the BSDs](#natively-on-the-bsds), [as part of the Machiya stack](#as-part-of-the-machiya-stack)
+- [How it reads the vault](#how-it-reads-the-vault) · [Settings](#settings) · [Install](#install-your-own-vault)
+- [Layout](#layout) · [Licence](#licence)
+
 ## Quickstart
 
 Kura alone on your own machine, reading the sample vault in `sample-vault/` (a made-up paper-lantern workshop and a trip
