@@ -44,10 +44,10 @@ ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(-
 .vaults .menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 200px; padding: var(--sp-2);
   background: var(--dark); border: 1px solid var(--line2); border-radius: var(--r-m); box-shadow: var(--shadow-2); z-index: 20; }
 .vaults .menu a, .vaults .menu b { display: flex; align-items: center; gap: 10px; padding: 7px var(--sp-2); border-radius: 8px;
-  color: var(--fg); font-size: var(--fs-s); font-weight: 500; }
+  color: var(--menu-fg, var(--fg)); font-size: var(--fs-s); font-weight: 500; }
 .vaults .menu a:hover { background: var(--hl); text-decoration: none; }
 .vaults .menu b { background: var(--hl); }
-.vaults .menu small { color: var(--muted); font-weight: 400; margin-left: auto; }
+.vaults .menu small { color: var(--menu-muted, var(--muted)); font-weight: 400; margin-left: auto; }   /* a raised panel, like Rooms */
 .kmeta .chip { margin-right: 4px; }
 p.scope { margin: 0 0 var(--sp-3); font-size: var(--fs-s); }
 
@@ -71,6 +71,7 @@ ul.kfolds ul.kfolds { margin: 0; }
 .kfold:hover { background: var(--hl); text-decoration: none; }
 .kfold.here { background: var(--hl); }
 .kfold.here b, .kfold.along b { color: var(--room); }
+.kfold.here b { color: var(--room-panel, var(--room)); }      /* on --hl, a raised row: the panel shade (docs/ui.md) */
 .kfold > svg { flex: none; width: 18px; height: 18px; color: var(--room); }
 .kfn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .kfn b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
