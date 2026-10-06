@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.4
+
+- Settings flow in Machiya's shared order: Appearance, Reading, Rooms, This Device, Account, About. Reading now holds Preview Pane and Obsidian Vault (still kept on this device); This Device keeps Offline Copies. vaultkit 0.23.0.
+
 ## 0.9.3
 
 - Shorter Settings text: Reading, This Device and Account each say what they do in a sentence, and a diagram Mermaid can't draw has a four-word tooltip (the error goes to the browser console).
