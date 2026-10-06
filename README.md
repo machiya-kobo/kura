@@ -4,14 +4,19 @@ Machiya is a set of small self-hosted apps for finding what you've read: your pa
 
 Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in your Obsidian vault, with working links, full-text search and a JSON API.
 
+<p align="center">
+<a href="https://machiya-kobo.github.io/machiya/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="#who-can-use-it">Who Can Use It</a> · <a href="#with-a-container-docker-or-podman">Container</a> · <a href="#natively-on-the-bsds">BSDs</a> · <a href="#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="#settings">Settings</a> · <a href="#install-your-own-vault">Install</a> · <a href="#licence">Licence</a>
+</p>
+
 <p><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a></p>
 
 <p>
-  <a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="28%"></a>
-  <a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="28%"></a>
-  <a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="28%"></a>
-  <a href="docs/screenshots/kura-note-phone-dark.png"><img src="docs/screenshots/kura-note-phone-dark.png" alt="The note Bamboo frames on a phone, one column with a tab bar, in the dark theme" width="8%"></a>
+  <a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="32%"></a>
+  <a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="32%"></a>
+  <a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="32%"></a>
 </p>
+
+<p align="center"><a href="docs/screenshots/kura-note-phone-dark.png"><img src="docs/screenshots/kura-note-phone-dark.png" alt="The note Bamboo frames on a phone, one column with a tab bar, in the dark theme" width="24%"></a></p>
 
 - **Follow every link.** Every `[[wikilink]]` works, with backlinks from the whole vault, folders, tags (nested ones too) and recently changed.
 - **Search everything.** SQLite FTS5: `"phrases"`, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:` and `vault:`, ranked by bm25 with titles first.
@@ -20,14 +25,6 @@ Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in y
 - **Feed the other apps.** Every note link in Machiya lands here. Shiori, the search app, reads its notes from the JSON API: `/api/search`, `/api/notes`, `/api/note` (with `external_links`: the note's http, https, Gemini and Gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. With `KURA_HISTER_URL`, every note goes into Hister too.
 
 The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract (`docs/contracts/kura-api.md`).
-
-**Contents**
-
-- [Quickstart](#quickstart)
-- [Who can use it](#who-can-use-it)
-- [More ways to run it](#more-ways-to-run-it): [with a container](#with-a-container-docker-or-podman), [natively on the BSDs](#natively-on-the-bsds), [as part of the Machiya stack](#as-part-of-the-machiya-stack)
-- [How it reads the vault](#how-it-reads-the-vault) · [Settings](#settings) · [Install](#install-your-own-vault)
-- [Layout](#layout) · [Licence](#licence)
 
 ## Quickstart
 
