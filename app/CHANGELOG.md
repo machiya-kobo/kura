@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.3
+
+- Shorter Settings text: Reading, This Device and Account each say what they do in a sentence, and a diagram Mermaid can't draw has a four-word tooltip (the error goes to the browser console).
+
 ## 0.9.2
 
 - `push.missing` in `/api/status` now means the notes that are still gone from Hister after the reconcile's re-push, so it drops to 0 as soon as they are back (it used to keep the number found until the next daily check). New `push.restored` is how many the last reconcile found gone and sent again. A note that has left the vault since is neither.
