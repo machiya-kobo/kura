@@ -130,7 +130,8 @@ function mermaidDiagrams(root = document) {
         div.innerHTML = svg;
         pre.replaceWith(div);
       } catch (err) {
-        pre.title = "Mermaid couldn't render this diagram: " + (err && err.message || err);
+        pre.title = "Couldn't draw this diagram";
+        console.warn("mermaid:", err);
         document.querySelectorAll("#dmmd-" + n).forEach((x) => x.remove());   // mermaid's error box
       }
     }

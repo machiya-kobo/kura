@@ -241,18 +241,15 @@ def settings(ctx, version, status_text, vaultkit, account="", prefs_state="stand
     signed-in name for its line. `account`: the principal's name when this request came with a sign-in session; it gets
     a Sign Out button."""
     reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True)],
-               "Preview Pane: on wide screens, a note picked in a list opens beside it. Off, notes open on their own "
-               "page. Follows you to your other devices when signed in.")
+               "On wide screens, a note picked in a list opens beside it.")
     device = house.device_section(
         ctx, [house.offline_row(), house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault")],
-        "Obsidian Vault: the vault's name in Obsidian on this device. Set, every note gets Edit in Obsidian; empty, "
-        "no link. Offline Copies: the notes you read last (up to 200) stay on this device for reading without the "
-        "network, and notes marked offline: true stay for good. Notes under Archive/ are never kept.")
+        "Obsidian Vault adds Edit in Obsidian links. Archive/ notes are never kept offline.")
     signed_in = None
     if account:         # a plain form: sign-out is a same-origin POST (vaultkit.signin), and works without JavaScript
         signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
                                  '<button type="submit">Sign Out</button></form>' % e(account)],
-                     "Signs this browser out. With one sign-in for every room (MACHIYA_COOKIE_DOMAIN), it signs out of them all.")
+                     "Signs this browser out, of every room if they share a sign-in.")
     sections = [house.shared_section(ctx, ROOM, rooms(), prefs_state, who), reading, device, signed_in,
                 house.about_section(ROOM, version, status_text, vaultkit)]
     return page(ctx, None, "Settings", header(None, "", "Settings") + house.settings_page(sections, ROOM))

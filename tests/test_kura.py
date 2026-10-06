@@ -320,7 +320,7 @@ class ShellTest(unittest.TestCase):
         sections = re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body)
         self.assertEqual(sections, ["Shared", "Reading", "This Device", "About"])      # vaultkit's order (docs/ui.md)
         for want in ("Theme", "Appearance", "Text Size", "Preview Pane", 'data-set="previewPane" data-cookie',
-                     "Use This Device&#x27;s Size", "Obsidian Vault", "Offline Copies", "Follows you to your other devices when signed in.",
+                     "Use This Device&#x27;s Size", "Obsidian Vault", "Offline Copies", "a note picked in a list opens beside it.",
                      'data-prefs-state="room"', 'name="machiya-app-prefs"', "kura.preview_pane"):
             self.assertIn(want, body)
         self.assertNotIn("<h2 id=\"display\">", body)
@@ -2580,7 +2580,7 @@ class PrefsWithoutIdentityTest(unittest.TestCase):
             body = get(path)[1]
             self.assertIn('<meta name="machiya-prefs" content="/api/prefs">', body, path)
             self.assertNotIn("Signed in as", body, path)                 # no identity file: no account to show
-        self.assertIn("Follows you to your other devices when signed in.", get("/settings")[1])
+        self.assertIn("a note picked in a list opens beside it.", get("/settings")[1])
         self.assertIn('data-prefs-state="room"', get("/settings")[1])           # Kura's own store, named by no one
 
 
