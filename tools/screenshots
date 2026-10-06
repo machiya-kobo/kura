@@ -2,7 +2,7 @@
 """tools/screenshots [--out docs/screenshots] [--keep]
 
 Captures the README's screenshots of Kura from the sample vault (sample-vault/, invented notes only): the reader at
-desktop size (1280x800) in the light and the dark theme, and a note on a phone (390x844) in both. It starts Kura on a free
+desktop size (1280x800: the home page, a note, search and the tags) in the light and the dark theme, and a note on a phone (390x844) in both. It starts Kura on a free
 localhost port against a throwaway copy of the vault, drives headless Chromium, optimises each PNG (at most 250 KB) and
 removes everything afterwards.
 
@@ -18,6 +18,7 @@ is installed. Output files: docs/screenshots/kura-<what>-<light|dark>.png.
 """
 import argparse
 import getpass
+import json
 import os
 import shutil
 import socket
@@ -31,11 +32,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 MAX_BYTES = 250 * 1024
 DESKTOP, PHONE = {"width": 1280, "height": 800}, {"width": 390, "height": 844}
-THEMES = (("light", "day"), ("dark", "night"))           # file name, Kura's theme cookie
+THEMES = (("light", "day"), ("dark", "night"))           # file name, the shared theme cookie (machiya_theme)
 # (name, path, viewport, wait for this selector)
 SHOTS = (("home", "/?p=Notes/Bamboo%20frames", DESKTOP, "article.note, .kpreview"),
          ("note", "/n/Notes/Bamboo%20frames", DESKTOP, "article.note"),
          ("search", "/search?q=bamboo", DESKTOP, "main"),
+         ("tags", "/t/", DESKTOP, "main"),
          ("note-phone", "/n/Notes/Bamboo%20frames", PHONE, "article.note"))
 
 
@@ -65,6 +67,14 @@ def wait_ready(base, proc):
             pass
         time.sleep(1)
     sys.exit("screenshots: Kura did not become ready")
+
+
+def set_theme(base, theme):
+    """Settings follow the person (open mode: Kura's own prefs store), so the theme is saved there, not just set as a
+    cookie: machiya.js would bring the last pass's theme back from /api/prefs."""
+    req = urllib.request.Request(base + "/api/prefs", method="PUT", data=json.dumps({"prefs": {"theme": theme}}).encode(),
+                                 headers={"Content-Type": "application/json", "Origin": base})
+    urllib.request.urlopen(req, timeout=5).read()
 
 
 def optimise(path):
@@ -106,11 +116,12 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch()
             for label, theme in THEMES:
+                set_theme(base, theme)
                 for name, path, viewport, selector in SHOTS:
                     ctx = browser.new_context(viewport=viewport, device_scale_factor=1,
                                               color_scheme="light" if theme == "day" else "dark",
                                               reduced_motion="reduce", locale="en-US", timezone_id="UTC")
-                    ctx.add_cookies([{"name": "theme", "value": theme, "url": base}])
+                    ctx.add_cookies([{"name": "machiya_theme", "value": theme, "url": base}])
                     page = ctx.new_page()
                     page.goto(base + path, wait_until="networkidle")
                     page.wait_for_selector(selector, timeout=15000)

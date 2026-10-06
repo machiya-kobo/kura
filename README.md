@@ -2,19 +2,30 @@
 
 Machiya is a set of small self-hosted apps for finding what you've read: your pages (Hister), the web (SearXNG), your notes (an Obsidian vault in git) and your code.
 
-Kura (蔵, storehouse) is the Machiya app that reads your notes. It shows every note in your vault with working links, full-text search and a JSON API. Every note link lands here, and Shiori, the search app, gets its notes from Kura. The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract.
+Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in your Obsidian vault, with working links, full-text search and a JSON API.
 
-- A reader with three columns on wide screens (folders | notes | preview), two on tablets, and one plus a tab bar on phones, in Tokyo Night or Day with Kura's orange accent, a switcher to the other Machiya apps and a status line in the footer.
-- **Other vaults.** With `KURA_VAULTS`, you can read and search more vaults (say `work`, `client` or `team`) next to the default one: the default lives at `/n/…` as always, every other vault at `/v/<name>/…` with a vault chip and a switch in the header. A vault is **private** unless it's marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device (`Cache-Control: no-store`, network-only in the service worker), no external links and no feed. A **shared** vault is treated like the default one at its `/v/<name>/` addresses: kept for offline reading (`offline: true` counts), external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those apps read the default vault only), and both stay invisible to the API unless a client asks with `vault=`. See "Vaults" in the API contract.
-- Installable as a PWA with offline reading: the shared service worker keeps the 200 notes read last, and every note with `offline: true` for good (listed at `/api/offline`, fetched ahead). Pages under `Archive/` answer `Cache-Control: no-store` and are never kept on a device.
-- Every `[[wikilink]]` works, with backlinks from the whole vault, folder and tag browsing (nested tags included), and recently changed.
-- Full-text search (SQLite FTS5): phrases, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:`, ranked by bm25 with titles first.
-- A JSON API for Shiori and anything else: `/api/search`, `/api/notes`, `/api/note` (with `external_links`, the note body's http, https, Gemini and Gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. The contract is `docs/contracts/kura-api.md` in the Machiya repository.
+<p><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a></p>
+
+<p>
+  <a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="28%"></a>
+  <a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="28%"></a>
+  <a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="28%"></a>
+  <a href="docs/screenshots/kura-note-phone-dark.png"><img src="docs/screenshots/kura-note-phone-dark.png" alt="The note Bamboo frames on a phone, one column with a tab bar, in the dark theme" width="8%"></a>
+</p>
+
+- **Follow every link.** Every `[[wikilink]]` works, with backlinks from the whole vault, folders, tags (nested ones too) and recently changed.
+- **Search everything.** SQLite FTS5: `"phrases"`, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:` and `vault:`, ranked by bm25 with titles first.
+- **Read offline.** Install it as a PWA. The 200 notes you read last stay on the device for when you're off The Internet, and notes with `offline: true` stay for good. Nothing under `Archive/` is ever kept.
+- **Keep work notes apart.** `KURA_VAULTS` adds more vaults (say `work` or `team`) at `/v/<name>/`, with a vault switch in the header. A vault is **private** unless marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device, no external links, no feed. A **shared** vault works like the default one: kept offline, external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those apps read the default vault only), and API clients see either only when they ask with `vault=`. See "Vaults" in the API contract.
+- **Feed the other apps.** Every note link in Machiya lands here. Shiori, the search app, reads its notes from the JSON API: `/api/search`, `/api/notes`, `/api/note` (with `external_links`: the note's http, https, Gemini and Gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. With `KURA_HISTER_URL`, every note goes into Hister too.
+
+The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract (`docs/contracts/kura-api.md`).
 
 ## Quickstart
 
-Kura alone on your own machine, reading the sample vault in `sample-vault/` (a fictional paper-lantern workshop and a
-trip to Kyoto, 27 notes): no account, no Tailscale, no identity file. You need `git`, `curl` and Python 3.12 or later (the image has 3.13); on Debian 13:
+Kura alone on your own machine, reading the sample vault in `sample-vault/` (a made-up paper-lantern workshop and a trip
+to Kyoto, 27 notes). No account, no Tailscale, no identity file. You need `git`, `curl` and Python 3.12 or later (the
+image has 3.13). On Debian 13:
 
 <!-- quickstart: quick-debian:packages -->
 ```bash
@@ -34,16 +45,16 @@ git clone https://github.com/machiya-kobo/kura.git && cd kura
 python3 -m venv .venv && .venv/bin/pip install -q 'markdown>=3.11' pyyaml
 ```
 
-**3. Start it on the sample vault**, listening on `127.0.0.1:8080` with the identity check off (`KURA_AUTH=open`, for
-your own machine only):
+**3. Start it on the sample vault.** It listens on `127.0.0.1:8080` with the identity check off (`KURA_AUTH=open`: your
+own machine only):
 
 <!-- quickstart: quick:serve -->
 ```bash
 KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_PUBLIC_URL=http://127.0.0.1:8080 KURA_REPO_DIR="$PWD" KURA_REPO_SUBDIR=sample-vault/personal .venv/bin/python app/kura.py
 ```
 
-**4. Open <http://127.0.0.1:8080/>**: folders, notes and a preview (one column and a tab bar on a phone). Search for
-`bamboo`, `title:kyoto` or `tag:topic/travel`. The API answers too, from another terminal:
+**4. Open <http://127.0.0.1:8080/>** and search for `bamboo`, `title:kyoto` or `tag:topic/travel`. The API answers
+too, from another terminal:
 
 <!-- quickstart: quick:check -->
 ```bash
@@ -57,37 +68,40 @@ curl -s 'http://127.0.0.1:8080/api/search?q=title:bamboo' | grep '"path"'
    "path": "Notes/Bamboo frames.md",
 ```
 
-Ctrl-C stops it. To read your own vault, point `KURA_REPO_DIR` at its checkout (and `KURA_REPO_SUBDIR` at the folder
-of notes, if they aren't at the top). `tools/quickstart-test` runs these steps from a fresh clone and checks the output.
+Ctrl-C stops it. For your own vault, point `KURA_REPO_DIR` at its checkout (and `KURA_REPO_SUBDIR` at the notes folder,
+if it isn't the top). `tools/quickstart-test` runs these steps from a fresh clone and checks the output.
 
 ## Who can use it
 
-Kura serves one person: you, the **owner**, whose vault it is.
+The vault's person is the **owner**. Who else gets in is up to you:
 
 - **You, on localhost:** `KURA_AUTH=open` with `KURA_BIND=127.0.0.1`, as in the Quickstart. Kura then answers only to an
   IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `KURA_ALLOWED_HOSTS`.
-- **People on your tailnet:** listen on `127.0.0.1`, put `tailscale serve` in front, and list their Tailscale logins in
-  `KURA_USERS` (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody). `/api/status` always answers, for monitoring, and so does `/api/changelog` (the first 64 KiB of [`app/CHANGELOG.md`](app/CHANGELOG.md), for the Machiya landing page's recent deploys).
-- **People, agents, sign-in or Shiori devices:** turn on Machiya's identity file with `cd app && python3 -m vaultkit.identity setup`
-  (in the Quickstart's venv: `cd app && ../.venv/bin/python -m vaultkit.identity setup`; vaultkit lives in `app/`), which prints the
-  settings for each room. It's off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
-- **Hister's users as the sign-in:** `KURA_AUTH=hister` (off unless you set it; it doesn't combine with the identity file). Kura
-  asks Machiya's sign-in helper (hister-login) whether the caller is signed in to Hister: one sign-in for Hister and every room,
-  and signing out anywhere ends it. A signed-out page goes to the helper's sign-in, an API call gets `401 {"error": "sign in",
-  "signin": …}`, a Hister account that isn't in `KURA_HISTER_USERS` gets 403, and with the helper or Hister unreachable
-  every page and call is a 503: Kura has **no Tailscale fallback** and no grace period. `/api/status` and `/api/changelog`
-  stay open. Each room keeps a cookie of its own (host-only, from a one-time code the sign-in helper hands over: the shared cookie is on its way out), and a caller that isn't a browser sends a room token (`Authorization: Bearer mht_…`, minted on the helper and good only for the rooms it names) in place of Hister's own token. See [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md#hister-sign-in-authhister).
+- **People on your tailnet:** listen on `127.0.0.1`, put `tailscale serve` in front and list their Tailscale logins in
+  `KURA_USERS` (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody).
+- **People, agents, sign-in or Shiori devices:** Machiya's identity file. `cd app && python3 -m vaultkit.identity setup`
+  (from the Quickstart's venv: `cd app && ../.venv/bin/python -m vaultkit.identity setup`; vaultkit lives in `app/`)
+  prints the settings for each app. Off unless you set it; see [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
+- **Hister's users as the sign-in:** `KURA_AUTH=hister` (off unless you set it; not with the identity file). Kura asks
+  Machiya's sign-in helper (hister-login) whether you're signed in to Hister: one sign-in for Hister and every app, and
+  signing out anywhere ends it. Signed out, a page goes to the helper's sign-in and an API call gets
+  `401 {"error": "sign in", "signin": …}`. A Hister account that isn't in `KURA_HISTER_USERS` gets 403. With the helper
+  or Hister unreachable, every page and call is a 503: **no Tailscale fallback**, no grace period. Each app keeps a
+  host-only cookie of its own, from a one-time code the helper hands over (the shared cookie is on its way out). A
+  caller that isn't a browser sends a room token (`Authorization: Bearer mht_…`, minted on the helper, good only for the
+  apps it names) in place of Hister's own token. See [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md#hister-sign-in-authhister).
+- **Always open:** `/api/status`, for monitoring, and `/api/changelog` (the first 64 KiB of [`app/CHANGELOG.md`](app/CHANGELOG.md), for the Machiya landing page's recent deploys).
 - Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`,
   `KURA_ACCEPT_APP_CAPS` and `KURA_PUBLIC_URL` (under Settings).
 
 ## More ways to run it
 
-These start in a clone, like the Quickstart. Kura reads a git repository (or a folder inside one), so the container and
-the BSD paths make a copy of the sample vault a repository of its own, as your vault would be.
+These start in a clone, like the Quickstart. Kura reads a git repository (or a folder in one), so each path turns a copy
+of the sample vault into a repository of its own, as your vault would be.
 
 ### With a container (Docker or Podman)
 
-If you have neither, on Debian 13 install `podman` (and `catatonit`, the small init program that `--init` uses with podman):
+Neither installed? On Debian 13, install `podman` (and `catatonit`, the small init that `--init` uses with podman):
 
 <!-- quickstart: container-debian:packages -->
 ```bash
@@ -95,15 +109,15 @@ sudo apt-get update
 sudo apt-get install -y git curl podman catatonit
 ```
 
-Say which engine you use (the rest of this section runs `$DOCKER`):
+Pick your engine (the rest of this section runs `$DOCKER`):
 
 <!-- quickstart: container-docker:engine -->
 ```bash
 DOCKER=docker
 ```
 
-*or, with Podman:* `--cgroup-manager=cgroupfs` keeps podman from needing a systemd user session, which a freshly set-up or
-ssh-only machine may not have yet.
+*or, with Podman* (`--cgroup-manager=cgroupfs` spares podman a systemd user session, which a fresh or ssh-only machine
+may not have yet):
 
 <!-- quickstart: container-podman:engine -->
 ```bash
@@ -130,7 +144,7 @@ $DOCKER run -d --init --name kura -p 127.0.0.1:8080:8080 \
   kura
 ```
 
-The three `GIT_CONFIG_*` settings tell git that the mounted vault, which belongs to your user, is safe to read; `--init` makes
+The three `GIT_CONFIG_*` settings tell git that the mounted vault, owned by your user, is safe to read. `--init` makes
 `stop` quick. Wait until Kura has read the vault, then check it:
 
 <!-- quickstart: container:check -->
@@ -161,10 +175,13 @@ $DOCKER rm -f kura
 
 ### Natively on the BSDs
 
-On Linux or macOS the Quickstart above is the native install. On the BSDs, install the packages first (a fresh
-FreeBSD or OpenBSD has no `git`; the lines below include it), then clone Kura as in step 1 of the Quickstart and run
-`app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml`, SQLite with FTS5 (every package
-below has it) and `git`. Kura refuses to start with an older `markdown` (it can run out of memory on one note under Python 3.13), and every BSD package is older today (FreeBSD and OpenBSD 3.10.2, NetBSD 3.10.3), so the packages below leave `markdown` out and a virtual environment gets it from pip. Run the package commands as root (or with `sudo`/`doas`; a fresh FreeBSD or NetBSD has neither, so run them as root without the `sudo`, or install `sudo` first).
+On Linux or macOS, the Quickstart is the native install. On the BSDs, install the packages, clone Kura (Quickstart step
+1) and run `app/kura.py` from the clone. Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later,
+`pyyaml`, SQLite with FTS5 (every package below has it) and `git` (a fresh FreeBSD or OpenBSD has none; the lines below
+include it). Every BSD's `markdown` package is older today (FreeBSD and OpenBSD 3.10.2, NetBSD 3.10.3), and Kura refuses
+to start with one (it can run out of memory on one note under Python 3.13), so the packages leave it out and a virtual
+environment gets it from pip. Run the package commands as root, or with `sudo`/`doas`. A fresh FreeBSD or NetBSD has
+neither: run them as root without the `sudo`, or install `sudo` first.
 
 **OpenBSD 7.9:**
 
@@ -204,8 +221,8 @@ PATH=/usr/pkg/bin:$PATH
 PY=python3.13
 ```
 
-Then, from the clone (step 1 of the Quickstart), `markdown` from pip in a virtual environment that also sees the packages
-you just installed (`$PY` becomes the environment's Python):
+Then, in the clone, get `markdown` from pip in a virtual environment that also sees the packages you just installed
+(`$PY` becomes its Python):
 
 <!-- quickstart: native:venv -->
 ```bash
@@ -223,7 +240,6 @@ git -C vault add -A
 git -C vault -c user.name=Demo -c user.email=demo@example.com commit -q -m "sample vault"
 ```
 
-
 <!-- quickstart: native:run -->
 ```bash
 mkdir -p data
@@ -239,7 +255,7 @@ curl -s http://127.0.0.1:8080/api/status | grep -E '^ "(notes|ready|error)": '
 curl -s 'http://127.0.0.1:8080/api/search?q=title:bamboo' | grep '"path"'
 ```
 
-The output is the same as with a container:
+The output matches the container's:
 
 <!-- quickstart-expect: native:check -->
 ```text
@@ -258,59 +274,42 @@ Stop it with:
 kill "$(cat data/kura.pid)"
 ```
 
-[`docs/install/bsd.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/install/bsd.md) in the Machiya repository turns the
-native install into a service (rc.d scripts, a user of its own, `tailscale serve` in front).
+[`docs/install/bsd.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/install/bsd.md) in the Machiya repository
+turns the native install into a service (rc.d scripts, a user of its own, `tailscale serve` in front).
 
-`tools/quickstart-test` runs exactly the commands of the Quickstart and of this section from a fresh clone and checks the
-output shown, so the README and the test cannot drift: `tools/quickstart-test --dry-run` lists the steps,
-`tools/quickstart-test` runs them (`--ssh HOST` on a clean BSD or Debian machine).
+`tools/quickstart-test` runs exactly these commands from a fresh clone and checks the output shown, so the README and the
+test can't drift. `--dry-run` lists the steps; `--ssh HOST` runs them on a clean BSD or Debian machine.
 
 ### As part of the Machiya stack
 
-Machiya is several small apps around one vault. Each app is a **room** (Kura is the one that reads and searches every note), and the rooms share one look and one set of settings. To run Kura next to the others, clone `machiya`, `kura`, `niwa` and
-`konbini` side by side and follow the [Quickstart in the Machiya repository's README](https://github.com/machiya-kobo/machiya#quickstart):
+Machiya is several small apps around one vault. Each app is a **room** (Kura is the one that reads and searches every
+note), and the rooms share one look and one set of settings. To run Kura with the others, clone `machiya`, `kura`,
+`niwa` and `konbini` side by side and follow the [Quickstart in the Machiya repository's README](https://github.com/machiya-kobo/machiya#quickstart):
 `compose/demo-init` prepares the sample vault and a `.env`, and `docker compose up -d --build` brings up the whole stack
-(Hister and SearXNG for search, Kura, Niwa, Konbini). `demo-init --mirror` keeps a single copy of the vault for all of them
-(`compose/mirror.yml`). The compose files and `.env.example` there are the place to look for the stack's own settings.
-What changes for Kura, compared with the Quickstart:
+(Hister and SearXNG for search, Kura, Niwa, Konbini). `demo-init --mirror` keeps one copy of the vault for all of them
+(`compose/mirror.yml`). The stack's own settings are in its compose files and `.env.example`. What changes for Kura:
 
 - **The port:** the stack publishes Kura on `127.0.0.1:8083` (`KURA_PORT`), not 8080.
-- **The vault** comes from the stack's `VAULT_REPO_URL` (Kura clones it), or, with the shared copy, from a read-only
-  checkout mounted at `/vault` (`KURA_REPO_DIR=/vault`, no `KURA_REPO_URL`); `VAULT_SUBDIR` (`KURA_REPO_SUBDIR`) names
-  the folder that holds the notes, which is `personal` in the sample vault.
+- **The vault** comes from the stack's `VAULT_REPO_URL` (Kura clones it) or, with the shared copy, from a read-only
+  checkout at `/vault` (`KURA_REPO_DIR=/vault`, no `KURA_REPO_URL`). `VAULT_SUBDIR` (`KURA_REPO_SUBDIR`) names the notes
+  folder: `personal` in the sample vault.
 - **The other rooms:** `MACHIYA_ROOMS` (the Rooms switcher in the header), `KURA_NIWA_URL` and `KURA_KONBINI_URL`
-  (the "View in Niwa" and "View Card in Konbini" links), and `KURA_HISTER_URL` (push every note into Hister; once Hister has sign-in on, also `KURA_HISTER_TOKEN_FILE`, the owner's Hister token; the reference compose doesn't pass it yet).
-- **Who may read it:** the stack's compose sets `KURA_AUTH=open`, which is only safe because every published port binds
-  `127.0.0.1`; "Who can use it" above says how to let others in.
-- **One look across rooms:** with the rooms on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and text
-  size between them.
+  ("View in Niwa" and "View Card in Konbini"), and `KURA_HISTER_URL` (push every note into Hister; once Hister has
+  sign-in on, also `KURA_HISTER_TOKEN_FILE`, the owner's Hister token, which the reference compose doesn't pass yet).
+- **Who may read it:** the stack's compose sets `KURA_AUTH=open`, safe only because every published port binds
+  `127.0.0.1`. "Who can use it" says how to let others in.
+- **One look across rooms:** with the rooms on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and
+  text size between them.
 - **Links:** `KURA_PUBLIC_URL` (the base of every note's URL), `MACHIYA_SOURCE_URL` (a source-code link in the footer)
   and `KURA_SHIORI_LINKS=1` ("Save links in Shiori").
 
-## Screenshots
-
-Taken from the sample vault (`tools/screenshots` repeats them): the reader with a note previewed on the right, a note on
-its own, search results, and a note on a phone. Every page follows the system's light or dark theme, or the choice in Settings.
-
-| Light | Dark |
-|---|---|
-| ![The reader: folders, notes and a preview, in the light theme](docs/screenshots/kura-home-light.png) | ![The reader: folders, notes and a preview, in the dark theme](docs/screenshots/kura-home-dark.png) |
-| ![A note with its backlinks, light](docs/screenshots/kura-note-light.png) | ![A note with its backlinks, dark](docs/screenshots/kura-note-dark.png) |
-| ![Search results for "bamboo", light](docs/screenshots/kura-search-light.png) | ![Search results for "bamboo", dark](docs/screenshots/kura-search-dark.png) |
-
-On a phone (390 × 844) the reader is one column with a tab bar:
-
-| Light | Dark |
-|---|---|
-| ![A note on a phone, light](docs/screenshots/kura-note-phone-light.png) | ![A note on a phone, dark](docs/screenshots/kura-note-phone-dark.png) |
-
 ## How it reads the vault
 
-Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it every `KURA_POLL` seconds. Its index lives in memory and is rebuilt whenever the commit changes; a few hundred notes take under a second. With `KURA_HISTER_URL` it also pushes every note into Hister (label `vault`, each note under its Kura URL), remembering what it sent in `KURA_DB`. That's the only other state, with the preferences (theme and text size, `prefs.sqlite3` next to it): lose `/data` and Kura clones again and re-sends every note once (and those preferences are gone). Niwa, Konbini and Hister are optional, and Kura never writes to the vault.
+Kura keeps its own clone of the vault repo (https, ssh or file) and fetches it every `KURA_POLL` seconds. It rebuilds its in-memory index whenever the commit changes; a few hundred notes take under a second. With `KURA_HISTER_URL` it pushes every note into Hister (label `vault`, each under its Kura URL) and remembers what it sent in `KURA_DB`. That and your preferences (theme and text size, in `prefs.sqlite3` next to it) are its only state: lose `/data` and Kura clones again, re-sends every note once and forgets the preferences. Niwa, Konbini and Hister are optional. Kura never writes to the vault.
 
 ## Settings
 
-The `/settings` page has Appearance, Reading (Preview Pane, Obsidian Vault, Offline Copies), Rooms and About. You set everything else in the environment:
+The `/settings` page has Appearance, Reading (Preview Pane, Obsidian Vault, Offline Copies), Rooms and About. Everything else is the environment:
 
 | Env | Default | |
 |---|---|---|
@@ -350,7 +349,7 @@ The `/settings` page has Appearance, Reading (Preview Pane, Obsidian Vault, Offl
 
 ## Install (your own vault)
 
-Kura needs nothing from the rest of Machiya: Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml` and `git`, or the Docker image. It serves a git repository (or a checkout) that holds an Obsidian vault.
+Kura needs nothing else from Machiya: Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml` and `git`, or the Docker image. It serves a git repository (or a checkout) that holds an Obsidian vault.
 
 **Docker, standalone** (clones the vault itself and keeps its state in `/data`):
 
@@ -362,7 +361,7 @@ docker run --init -p 127.0.0.1:8080:8080 -v kura-data:/data \
   -e KURA_AUTH=open kura
 ```
 
-`token` is a file holding the git host's access token (leave out the `-v` and `KURA_REPO_TOKEN_FILE` lines for a public repository; use an `ssh://` or `file://` URL for other setups). `KURA_AUTH=open` turns the identity check off: anyone who can reach port 8080 reads every note, which is why the port is published on `127.0.0.1` only. Open it at http://127.0.0.1:8080/. To serve other people, see "Who can use it".
+`token` is a file holding the git host's access token. Drop the `-v` and `KURA_REPO_TOKEN_FILE` lines for a public repository; `ssh://` and `file://` URLs work too. `KURA_AUTH=open` turns the identity check off: anyone who can reach port 8080 reads every note, so the port is published on `127.0.0.1` only. Open http://127.0.0.1:8080/. To let others in, see "Who can use it".
 
 **Native, on a checkout you already have** (read-only, no clone):
 
@@ -372,23 +371,24 @@ mkdir -p data
 KURA_AUTH=open KURA_BIND=127.0.0.1 KURA_REPO_DIR=/path/to/vault KURA_DB="$PWD/data/kura.sqlite3" .venv/bin/python app/kura.py
 ```
 
-**Who may read it:** see "Who can use it" above. With `tailscale serve`, Kura trusts the `Tailscale-User-Login` header it sets, so listen on `127.0.0.1` (`KURA_BIND`) and block the port from outside.
+**Behind `tailscale serve`:** Kura trusts the `Tailscale-User-Login` header it sets, so listen on `127.0.0.1` (`KURA_BIND`) and block the port from outside.
 
-**More:** native installs on the BSDs (packages only, rc.d scripts, an env file for the settings) are in [`docs/install/bsd.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/install/bsd.md) in the Machiya repository; running Kura with the other rooms is its [Quickstart](https://github.com/machiya-kobo/machiya#quickstart), and the vault's own layout (frontmatter, tags, folders) is [`docs/frontmatter.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/frontmatter.md). Kura never writes to the vault.
+**More:** native installs on the BSDs (packages only, rc.d scripts, an env file for the settings) are in [`docs/install/bsd.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/install/bsd.md) in the Machiya repository. Running Kura with the other apps is its [Quickstart](https://github.com/machiya-kobo/machiya#quickstart), and the vault's own layout (frontmatter, tags, folders) is [`docs/frontmatter.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/frontmatter.md).
 
 ## Layout
 
-- `app/kura.py` — the server: settings, the sync loop, routes, the owner gate and the API
-- `app/pages.py` — the reader pages; every page takes the vault (`g`, a `sites.Site`) and builds its links with `g.prefix`
-- `app/sites.py` — the vaults: `KURA_VAULTS` parsing, `Site` (a vaultkit `Vault` with a name, title, prefix, and whether it's shared or private) and the shared checkouts
-- `app/search.py` — the FTS5 index (one table, a `vault` column) and the query syntax
-- `app/api.py` — JSON shapes, card links, the HTML sanitizer for `/api/note`, and RSS
-- `app/push.py` — the vault push into Hister
-- `app/shell.py` — Kura's room on the shared shell (`vaultkit.shell`): tabs, glyphs, the manifest, the service worker's settings, `/settings`
-- `app/static/` — `kura.css` (the reader's own layout, over `machiya.css`) and `kura.js` (preview pane, Mermaid, Edit in Obsidian, the offline banner), vendored Mermaid (MIT), icons
-- `app/vaultkit/` — the shared vault core and UI (`ui/machiya.css`, `machiya.js`, `machiya-sw.js`), **vendored** from machiya-kobo/machiya (`tools/vendor-vaultkit <tag>`)
-- `tests/` — `python3 -m unittest discover -s tests` (see CLAUDE.md, "Testing"); `CONTRIBUTING.md` says how to send a change
-- `skills/kura/` — a short agent skill for finding and reading notes through the API
+- `app/kura.py`: the server: settings, the sync loop, routes, the owner gate and the API
+- `app/pages.py`: the reader pages; every page takes the vault (`g`, a `sites.Site`) and builds its links with `g.prefix`
+- `app/sites.py`: the vaults: `KURA_VAULTS` parsing, `Site` (a vaultkit `Vault` with a name, title, prefix, and whether it's shared or private) and the shared checkouts
+- `app/search.py`: the FTS5 index (one table, a `vault` column) and the query syntax
+- `app/api.py`: JSON shapes, card links, the HTML sanitizer for `/api/note`, and RSS
+- `app/push.py`: the vault push into Hister
+- `app/shell.py`: Kura's room on the shared shell (`vaultkit.shell`): tabs, glyphs, the manifest, the service worker's settings, `/settings`
+- `app/static/`: `kura.css` (the reader's own layout, over `machiya.css`) and `kura.js` (preview pane, Mermaid, Edit in Obsidian, the offline banner), vendored Mermaid (MIT), icons
+- `app/vaultkit/`: the shared vault core and UI (`ui/machiya.css`, `machiya.js`, `machiya-sw.js`), **vendored** from machiya-kobo/machiya (`tools/vendor-vaultkit <tag>`)
+- `tests/`: `python3 -m unittest discover -s tests` (see CLAUDE.md, "Testing"); `CONTRIBUTING.md` says how to send a change
+- `tools/screenshots`: retakes the README's screenshots from the sample vault
+- `skills/kura/`: a short agent skill for finding and reading notes through the API
 
 ## Licence
 
