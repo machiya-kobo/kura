@@ -8,15 +8,17 @@ Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in y
 <a href="https://machiya-kobo.github.io/machiya/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="#who-can-use-it">Who Can Use It</a> · <a href="#with-a-container-docker-or-podman">Container</a> · <a href="#natively-on-the-bsds">BSDs</a> · <a href="#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="#settings">Settings</a> · <a href="#install-your-own-vault">Install</a> · <a href="#license">License</a>
 </p>
 
-<p><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a></p>
+<p align="center"><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a><br>Browse folders and preview notes side by side</p>
 
-<p>
-  <a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="32%"></a>
-  <a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="32%"></a>
-  <a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="32%"></a>
-</p>
+<table>
+  <tr>
+    <td align="center" width="33%"><a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="100%"></a><br>Read a note and its backlinks</td>
+    <td align="center" width="33%"><a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="100%"></a><br>Search every note</td>
+    <td align="center" width="33%"><a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="100%"></a><br>Browse every tag</td>
+  </tr>
+</table>
 
-<p align="center"><a href="docs/screenshots/kura-note-phone-dark.png"><img src="docs/screenshots/kura-note-phone-dark.png" alt="The note Bamboo frames on a phone, one column with a tab bar, in the dark theme" width="24%"></a></p>
+<p align="center"><a href="docs/screenshots/kura-note-phone-dark.png"><img src="docs/screenshots/kura-note-phone-dark.png" alt="The note Bamboo frames on a phone, one column with a tab bar, in the dark theme" width="24%"></a><br>Your notes on a phone</p>
 
 - **Follow every link.** Every `[[wikilink]]` works, with backlinks from the whole vault, folders, tags (nested ones too) and recently changed.
 - **Search everything.** SQLite FTS5: `"phrases"`, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:` and `vault:`, ranked by bm25 with titles first.
