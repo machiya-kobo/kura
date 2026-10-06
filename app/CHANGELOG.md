@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.7
+
+- Links and accent text on raised panels (Settings, the Rooms and vault menus, the open folder) are readable in every theme (vaultkit 0.25.0).
+
 ## 0.9.6
 
 - Better contrast in the footer status, the phone tab bar's labels and Settings' group text, in every theme (vaultkit 0.24.0). In Settings, "This device" now sits under Obsidian Vault instead of running into it.
