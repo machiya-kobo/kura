@@ -318,19 +318,17 @@ class ShellTest(unittest.TestCase):
         status, headers, body = fetch("/settings")
         self.assertEqual(status, 200)
         sections = re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body)
-        self.assertEqual(sections, ["Appearance", "Reading", "Rooms", "This Device", "About"])  # vaultkit's order (docs/ui.md)
+        self.assertEqual(sections, ["Appearance", "Reading", "Rooms", "About"])  # vaultkit's order (docs/ui.md)
         for want in ("Theme", "Mode", "Text Size", "Preview Pane", 'data-set="previewPane" data-cookie',
-                     "Use This Device's Size", "Obsidian Vault", "Offline Copies", "a note picked in a list opens beside it.",
+                     "Use This Device's Size", "Obsidian Vault", "Offline Copies", "notes open beside the list.",
                      'data-prefs-state="room"', 'name="machiya-app-prefs"', "kura.preview_pane"):
             self.assertIn(want, body)
         self.assertNotIn("<h2 id=\"display\">", body)
         reading = body[body.index('id="reading"'):body.index('id="rooms"')]
         self.assertIn("Obsidian Vault", reading)                                    # this device's, beside Preview Pane
         self.assertIn('Obsidian Vault<small class="value">This device</small>', reading)
-        self.assertNotIn("Offline Copies", reading)
-        device = body[body.index('id="this-device"'):body.index('id="about"')]
-        self.assertIn("Offline Copies", device)
-        self.assertNotIn("Obsidian Vault", device)
+        self.assertIn("Offline Copies", reading)                                    # a lone device row folds in here
+        self.assertNotIn('id="this-device"', body)
 
     def test_service_worker(self):
         _, headers, body = fetch("/sw.js")
@@ -1351,7 +1349,7 @@ class HisterModeTest(unittest.TestCase):
         self.assertIn('data-prefs-state="account"', body)
         self.assertIn("Saved to your account.", body)
         self.assertIn('<form class="item" method="post" action="/signout"><span>Signed in as owner</span>', body)
-        self.assertEqual(re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body), ["Appearance", "Reading", "Rooms", "This Device", "Account", "About"])
+        self.assertEqual(re.findall(r"<h2 id=\"[a-z-]+\">([^<]+)</h2>", body), ["Appearance", "Reading", "Rooms", "Account", "About"])
         _, _, body = self.call("/settings", headers={"X-Access-Token": HISTER_TOKEN}, tailscale=False)
         self.assertIn('data-prefs-state="account"', body)
         self.assertNotIn("action=\"/signout\"", body)                                  # a token has nothing to sign out of
@@ -2584,7 +2582,7 @@ class PrefsWithoutIdentityTest(unittest.TestCase):
             body = get(path)[1]
             self.assertIn('<meta name="machiya-prefs" content="/api/prefs">', body, path)
             self.assertNotIn("Signed in as", body, path)                 # no identity file: no account to show
-        self.assertIn("a note picked in a list opens beside it.", get("/settings")[1])
+        self.assertIn("notes open beside the list.", get("/settings")[1])
         self.assertIn('data-prefs-state="room"', get("/settings")[1])           # Kura's own store, named by no one
 
 

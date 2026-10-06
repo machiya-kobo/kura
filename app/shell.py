@@ -237,20 +237,21 @@ def preview_pane(ctx):
 
 def settings(ctx, version, status_text, vaultkit, account="", prefs_state="standalone", who=""):
     """vaultkit's Settings order (docs/ui.md; settings_page sorts them): Appearance, Kura's Reading (Preview Pane, and
-    this device's Obsidian Vault), Rooms, This Device (Offline Copies), Account, About. `prefs_state`: where
-    the Appearance choices are kept (histerauth.prefs_state, "room" for Kura's own store, else "standalone"); `who`: the
+    this device's Obsidian Vault and Offline Copies: a lone This Device row folds in here), Rooms, Account, About.
+    `prefs_state`: where the Appearance choices are kept (histerauth.prefs_state, "room" for Kura's own store, else "standalone"); `who`: the
     signed-in name for its line. `account`: the principal's name when this request came with a sign-in session; it gets
     a Sign Out button."""
     obsidian = house.text_field("Obsidian Vault", "obsidianVault", "", "my-vault").replace(   # not in APP_PREFS: stays
         "<span>Obsidian Vault</span>", '<span>Obsidian Vault<small class="value">This device</small></span>', 1)  # here
-    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True), obsidian],
-               "On wide screens, a note picked in a list opens beside it. Obsidian Vault adds Edit in Obsidian links.")
-    device = house.device_section(ctx, [house.offline_row()], "Archive/ notes are never kept.")
+    reading = ("Reading", [house.toggle("Preview Pane", "previewPane", preview_pane(ctx), cookie=True), obsidian,
+                           house.offline_row()],
+               "On wide screens, notes open beside the list. Obsidian Vault (for Edit in Obsidian) and Offline Copies "
+               "stay on this device; Archive/ is never kept.")
     signed_in = None
     if account:         # a plain form: sign-out is a same-origin POST (vaultkit.signin), and works without JavaScript
         signed_in = ("Account", ['<form class="item" method="post" action="/signout"><span>Signed in as %s</span>'
                                  '<button type="submit">Sign Out</button></form>' % e(account)],
                      "Signs this browser out, of every room if they share a sign-in.")
-    sections = [house.shared_section(ctx, ROOM, rooms(), prefs_state, who), reading, device, signed_in,
+    sections = [house.shared_section(ctx, ROOM, rooms(), prefs_state, who), reading, signed_in,
                 house.about_section(ROOM, version, status_text, vaultkit)]
     return page(ctx, None, "Settings", header(None, "", "Settings") + house.settings_page(sections, ROOM))
