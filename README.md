@@ -1,6 +1,6 @@
 # Kura
 
-[Machiya](https://github.com/machiya-kobo/machiya) is a set of small self-hosted apps for finding what you've read: your pages (Hister), the web (SearXNG), your notes (an Obsidian vault in git) and your code.
+[Machiya](https://github.com/machiya-kobo/machiya) is a set of small self-hosted apps for finding what you've read: your pages ([Hister](https://github.com/asciimoo/hister)), the web ([SearXNG](https://github.com/searxng/searxng)), your notes (an [Obsidian](https://obsidian.md) vault in git) and your code.
 
 Kura (蔵, storehouse) is the Machiya app that reads your notes: every note in your Obsidian vault, with working links, full-text search and a JSON API.
 
