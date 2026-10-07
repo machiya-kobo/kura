@@ -5,7 +5,7 @@
 Kura (蔵, "storehouse") is the notes app for Machiya and reads every note in your Obsidian vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
 
 <p align="center">
-<a href="https://machiya-kobo.github.io/machiya/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/access.md">Who Can Use It</a> · <a href="docs/install.md#with-a-container-docker-or-podman">Container</a> · <a href="docs/install.md#natively-on-the-bsds">BSDs</a> · <a href="docs/install.md#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="docs/settings.md">Settings</a> · <a href="docs/install.md#your-own-vault">Install</a> · <a href="#license">License</a>
+<a href="https://machiya-kobo.github.io/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/access.md">Who Can Use It</a> · <a href="docs/install.md#with-a-container-docker-or-podman">Container</a> · <a href="docs/install.md#natively-on-the-bsds">BSDs</a> · <a href="docs/install.md#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="docs/settings.md">Settings</a> · <a href="docs/install.md#your-own-vault">Install</a> · <a href="#license">License</a>
 </p>
 
 <p align="center"><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a><br>Browse folders and preview notes side by side</p>
