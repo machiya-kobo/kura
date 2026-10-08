@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.11.3
+
+- Public container images: each signed release tag builds `ghcr.io/machiya-kobo/kura:<version>` (amd64 and arm64) and `:latest` on GitHub and signs it with cosign (keyless); the install page shows how to run and verify it. The Dockerfile's base image is pinned by digest, so a rebuild gets exactly the image that was tested.
+- Takes vaultkit 0.28.0: the vault is read through LibYAML, the index is built aside and swapped in, only changed notes are read again, and the history is walked once and then only for new commits (Kura's own second walk is gone unless one vault sits inside another). On a 3,000-note vault with 1,500 commits a cold start went from 3.8 s to 1.7 s and a re-index after one commit from 3.4 s to 1.1 s; what is served is the same.
+
 ## 0.11.2
 
 - Takes vaultkit 0.27.4: an unselected pill (the search scope, a tag's nested tags) fills with a quarter of its colour under the pointer, and its text and outline take a hover shade that stays at 4.5:1 on that fill in every theme.
