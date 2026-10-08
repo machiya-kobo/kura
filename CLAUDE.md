@@ -13,7 +13,7 @@ Kura 蔵 is Machiya's note reader, search engine and API: it serves a vault of M
 - `app/static/kura.css`/`kura.js` and `app/shell.py` are Kura's own on top of Machiya's shared stylesheet and shell (`app/vaultkit/ui/`, vendored). Keep the Tokyo Night/Day look and classes, and keep pages working on phones.
 - Kura owns folder, tag and backlink browsing; other apps link here instead of building their own.
 - **Never commit personal details, preferences or settings.** This repository ships neutral defaults only. Hostnames, tailnet and network names, people's names, logins and emails, device names and team IDs, vault and folder names, tokens, and anyone's own choices or settings (themes and text size, rooms, `.env` and `local.*` files, the identity file `identity.toml`, `prefs.sqlite3` and other data) stay outside the repository: in settings, gitignored files or the deployment's own repository. Code, tests, fixtures, docs, comments, screenshots and commit messages use `example.com`, `example.ts.net`, "the user" and the sample vault. Check the diff for them before you push: once the repository is public, its history can't take them back.
-- Commits: `kura: …`, one change each, with tests.
+- Commits: `kura: …`, one change each, with tests. Commits are unsigned; **release tags are signed**: make `vX.Y.Z` with Machiya's `tools/release-tag` (`tools/release-tag -C <clone> vX.Y.Z -m "Kura X.Y.Z"`, [`docs/release-signing.md`](https://github.com/machiya-kobo/machiya/blob/main/docs/release-signing.md) in the Machiya repository), never a plain `git tag`, then push the tag to both forges.
 
 ## Vaults, and the rule that work notes never reach AI
 
