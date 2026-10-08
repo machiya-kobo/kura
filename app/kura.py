@@ -8,6 +8,7 @@ Every request needs a Tailscale-User-Login in KURA_USERS (`*` = anyone), except 
 probes read; KURA_AUTH=open drops that check for localhost or a trusted LAN. Native installs (docs/install/bsd.md in
 machiya) put the settings in a file: KURA_ENV_FILE or --env-file PATH, read before anything else.
 """
+import gzip
 import ipaddress
 import json
 import os
@@ -231,6 +232,10 @@ IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 STATIC_TYPES = {"kura.css": "text/css", "kura.js": "text/javascript", "mermaid.min.js": "text/javascript",
                 "machiya.css": "text/css", "machiya.js": "text/javascript",         # machiya.*: the vendored shared UI
                 "machiya-sw.js": "text/javascript"}
+GZIP_TYPES = ("text/html", "text/css", "text/javascript", "text/plain", "application/json", "application/xml", "application/rss+xml",
+              "application/manifest+json", "text/xml", "image/svg+xml", "text/markdown")
+GZIP_MIN = 1024                               # smaller answers don't repay the header
+STATIC_CACHE = {}
 NO_STORE = ("Cache-Control", "no-store")      # pages never kept on a device (pages.NEVER_STORED: Archive/)
 STALE = 600                                   # seconds without a good sync before the footer turns yellow
 MAX_LIMIT = 100
@@ -651,15 +656,38 @@ class Handler(BaseHTTPRequestHandler):
         ctx.banner = bool(res and res.banner)           # the Tailscale fallback let this request in: say so
         return ctx
 
-    def send(self, status, body, ctype="text/html", headers=()):
+    def wants_gzip(self):
+        """The client takes gzip ("gzip" in Accept-Encoding without q=0)."""
+        for part in (self.headers.get("Accept-Encoding") or "").split(","):
+            name, _, q = part.strip().partition(";")
+            if name.strip().lower() in ("gzip", "x-gzip") and q.strip().replace(" ", "") not in ("q=0", "q=0.0", "q=0.00", "q=0.000"):
+                return True
+        return False
+
+    def send(self, status, body, ctype="text/html", headers=(), gz=None):
+        """`gz`: the body already gzipped (static files keep theirs). Text answers of GZIP_MIN bytes or more are gzipped for a
+        client that accepts it: a note list is 100s of KB of HTML that shrinks 10-fold, and nothing here is secret in
+        the way BREACH needs (no token or cookie in a body, only what the owner may read)."""
         data = body.encode("utf-8") if isinstance(body, str) else body
         if isinstance(body, str):
             ctype += "; charset=utf-8"
+        packed = False
+        if status == 200 and ctype.split(";")[0] in GZIP_TYPES and (gz is not None or len(data) >= GZIP_MIN) and self.wants_gzip() \
+                and not any(k.lower() in ("content-encoding", "etag") for k, _ in headers):
+            data, packed = gz if gz is not None else gzip.compress(data, 5, mtime=0), True
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        if packed:
+            self.send_header("Content-Encoding", "gzip")
+        vary = [v for k, v in headers if k.lower() == "vary"]
+        if ctype.split(";")[0] in GZIP_TYPES:
+            vary.append("Accept-Encoding")
+        if vary:
+            self.send_header("Vary", ", ".join(vary))
         for k, v in headers:
-            self.send_header(k, v)
+            if k.lower() != "vary":
+                self.send_header(k, v)
         if ctype.startswith("text/html"):
             for k, v in shell.house.security_headers():    # a note's HTML is cleaned; this is the second wall
                 self.send_header(k, v)
@@ -816,8 +844,15 @@ class Handler(BaseHTTPRequestHandler):
                                      headers=[("Cache-Control", "public, max-age=604800")])
         elif name in STATIC_TYPES:
             cache = "public, max-age=31536000, immutable" if query.get("v") else "max-age=300"
-            with open(shell.static_path(name), "rb") as f:
-                return self.send(200, f.read(), STATIC_TYPES[name], headers=[("Cache-Control", cache)])
+            path = shell.static_path(name)
+            stamp = (name, os.stat(path).st_mtime_ns)
+            if stamp not in STATIC_CACHE:                   # the file and its gzip, kept until the file changes
+                with open(path, "rb") as f:
+                    raw = f.read()
+                STATIC_CACHE.clear() if len(STATIC_CACHE) > 16 else None
+                STATIC_CACHE[stamp] = (raw, gzip.compress(raw, 9, mtime=0))
+            raw, packed = STATIC_CACHE[stamp]
+            return self.send(200, raw, STATIC_TYPES[name], headers=[("Cache-Control", cache)], gz=packed)
         self.send(404, "not found\n", "text/plain")
 
     # -- the reader ------------------------------------------------------------------------------------------
@@ -976,7 +1011,7 @@ class Handler(BaseHTTPRequestHandler):
             if not n:
                 return self.send_json(404, {"error": "no such note"})
             out = api.note_json(base, g, n)
-            out["html"] = api.sanitize(g.render(n, "", False, mode="all", prefix=g.prefix), base)
+            out["html"] = api.render(g, n, "all", base, clean=True)
             out["markdown"] = n.text
             back = sorted((g.notes[r] for r in g.backlinks.get(n.rel, ()) if r in g.notes and not r.startswith(pages.HIDDEN)),
                           key=lambda x: x.title.lower())

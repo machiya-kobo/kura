@@ -576,6 +576,93 @@ class AuthTest(unittest.TestCase):
         self.assertIn("KURA_AUTH must be tailscale or open", r.stderr)
 
 
+class SpeedTest(unittest.TestCase):
+    """The performance pass: gzip for what a browser takes, and rendered notes kept until the note changes."""
+
+    @staticmethod
+    def raw(path, encoding=None):
+        headers = {"Tailscale-User-Login": "owner@test"}
+        if encoding is not None:
+            headers["Accept-Encoding"] = encoding
+        try:
+            with urllib.request.urlopen(urllib.request.Request(BASE + path, headers=headers), timeout=10) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+
+    def test_text_is_gzipped_for_a_client_that_accepts_it(self):
+        import gzip
+        for path in ("/", "/n/Notes/Tea%20brewing", "/t/", "/search?q=tea", "/v/work/", "/static/machiya.css",
+                     "/api/search?q=tea&vault=all", "/manifest.webmanifest", "/feed.xml"):
+            _, plain_h, plain = self.raw(path)
+            status, h, packed = self.raw(path, "gzip, deflate, br")
+            self.assertEqual(status, 200, path)
+            if len(plain) < kura.GZIP_MIN:
+                self.assertIsNone(h["Content-Encoding"], path)         # too small to repay the header
+                continue
+            self.assertEqual(h["Content-Encoding"], "gzip", path)
+            self.assertIn("Accept-Encoding", h["Vary"], path)
+            self.assertEqual(int(h["Content-Length"]), len(packed), path)
+            self.assertLess(len(packed), len(plain), path)
+            body = gzip.decompress(packed)
+            if path.startswith(("/static/", "/api/", "/manifest")):      # the same bytes (a page's status line moves with the clock)
+                self.assertEqual(body, plain, path)
+            elif path != "/feed.xml":
+                self.assertTrue(body.startswith(b"<!DOCTYPE html>"), path)
+            self.assertEqual(h["Cache-Control"], plain_h["Cache-Control"], path)     # gzip changes nothing else
+            self.assertIsNone(plain_h["Content-Encoding"], path)
+            self.assertIn("Accept-Encoding", plain_h["Vary"] or "", path)           # a cache keeps the two apart
+
+    def test_gzip_is_not_sent_when_refused_or_not_asked_for(self):
+        for encoding in (None, "identity", "br", "gzip;q=0", "gzip; q=0", "deflate"):
+            self.assertIsNone(self.raw("/t/", encoding)[1]["Content-Encoding"], encoding)
+        self.assertEqual(self.raw("/t/", "GZIP")[1]["Content-Encoding"], "gzip")
+        self.assertEqual(self.raw("/t/", "deflate, gzip;q=0.5")[1]["Content-Encoding"], "gzip")
+        for path in ("/a/pic.png", "/static/icons/kura-192.png", "/static/icons/kura.ico"):         # already compressed
+            self.assertIsNone(self.raw(path, "gzip")[1]["Content-Encoding"], path)
+        self.assertEqual(self.raw("/t/", "gzip")[1]["Cache-Control"], self.raw("/t/")[1]["Cache-Control"])
+
+    def test_the_vary_header_keeps_what_a_route_set(self):
+        h = self.raw("/manifest.webmanifest", "gzip")[1]
+        self.assertEqual(len(h.get_all("Vary")), 1)
+        self.assertIn("Sec-CH-Prefers-Color-Scheme", h["Vary"])
+        self.assertIn("Accept-Encoding", h["Vary"])
+
+    def test_a_head_request_still_names_the_encoding_and_sends_no_body(self):
+        req = urllib.request.Request(BASE + "/t/", method="HEAD", headers={"Tailscale-User-Login": "owner@test", "Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual((r.headers["Content-Encoding"], r.read()), ("gzip", b""))
+
+    def test_rendered_notes_are_kept_until_the_note_changes(self):
+        import copy
+        g = kura.state.default
+        n = g.notes["Notes/Tea brewing.md"]
+        first = api.render(g, n, "kura")
+        self.assertIs(api.render(g, n, "kura"), first)                          # kept: not rendered again
+        self.assertEqual(api.render(g, n, "kura"), g.render(n, "", False, mode="kura", prefix=g.prefix))
+        self.assertIsNot(api.render(g, n, "all"), first)                        # the mode is part of the key
+        clean = api.render(g, n, "all", "https://kura.example.com", clean=True)
+        self.assertIs(api.render(g, n, "all", "https://kura.example.com", clean=True), clean)
+        self.assertEqual(clean, api.sanitize(g.render(n, "", False, mode="all", prefix=g.prefix), "https://kura.example.com"))
+        again = copy.copy(n)                                                    # a sync makes new Note objects for every note
+        again.text = n.text + "\nA new line after the sync.\n"
+        self.assertIn("A new line after the sync.", api.render(g, again, "kura"))
+        self.assertNotIn("A new line after the sync.", api.render(g, n, "kura"))     # and the old note's entry is untouched
+
+    def test_the_rendered_cache_is_bounded(self):
+        g = kura.state.default
+        n = g.notes["Notes/Tea brewing.md"]
+        old = api.RENDER_CACHE_BYTES
+        try:
+            api.RENDER_CACHE_BYTES = 4000
+            for i in range(30):
+                api.render(g, n, "kura", "https://x%d.example.com" % i, clean=True)    # one entry per base
+            self.assertLessEqual(api._rendered_size, 4000)
+            self.assertEqual(api._rendered_size, sum(len(v[1]) * 2 for v in api._rendered.values()))
+        finally:
+            api.RENDER_CACHE_BYTES = old
+
+
 class ImageTest(unittest.TestCase):
     def test_the_image_does_not_run_as_root(self):
         """Outside the reference compose (which sets user:) the container must still be uid 1000, and /data, the one place

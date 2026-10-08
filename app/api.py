@@ -13,6 +13,7 @@ import html
 import os
 import re
 import threading
+from collections import OrderedDict
 from email.utils import formatdate
 from html.parser import HTMLParser
 from urllib.parse import quote, urljoin, urlsplit
@@ -20,6 +21,40 @@ from urllib.parse import quote, urljoin, urlsplit
 from vaultkit import BOARD_STATUSES, _str, note_status
 import search
 import shell
+
+RENDER_CACHE_BYTES = 24 * 1024 * 1024       # rendered notes kept in memory (the biggest cost of a page is Markdown to HTML)
+_rendered = OrderedDict()                   # {(vault, rel, mode, clean, base): (the Note rendered, html)}, least recently used first
+_rendered_size = 0
+_rendered_lock = threading.Lock()
+
+
+def render(g, n, mode="kura", base="", clean=False):
+    """A note's HTML, as g.render(n, "", False, mode=mode, prefix=g.prefix) (`clean`: then through sanitize(…, base)),
+    kept while the note is the one the index holds: a sync that changes the vault makes new Note objects, so a changed note,
+    a new image or a renamed link target can't be served from here. Bounded by RENDER_CACHE_BYTES."""
+    global _rendered_size
+    key = (id(g), n.rel, mode, clean, base if clean else "")
+    with _rendered_lock:
+        hit = _rendered.get(key)
+        if hit is not None and hit[0] is n:
+            _rendered.move_to_end(key)
+            return hit[1]
+    out = g.render(n, "", False, mode=mode, prefix=g.prefix)
+    if clean:
+        out = sanitize(out, base)
+    size = len(out) * 2
+    if size <= RENDER_CACHE_BYTES // 4:
+        with _rendered_lock:
+            old = _rendered.pop(key, None)
+            if old is not None:
+                _rendered_size -= len(old[1]) * 2
+            _rendered[key] = (n, out)
+            _rendered_size += size
+            while _rendered_size > RENDER_CACHE_BYTES and _rendered:
+                _, (_, gone) = _rendered.popitem(last=False)
+                _rendered_size -= len(gone) * 2
+    return out
+
 
 KONBINI_URL = ""                    # kura.py sets it; "" = no card links
 PUBLIC_URL = ""                     # kura.py sets it: Kura's own address, left out of external_links
@@ -153,7 +188,7 @@ def note_links(g, n):
         key = (id(g), n.rel)
         if key not in _links:
             finder = LinkFinder()
-            finder.feed(g.render(n, "", False, mode="all", prefix=g.prefix))
+            finder.feed(render(g, n, "all"))
             finder.close()
             _links[key] = finder.found
         return _links[key]

@@ -190,7 +190,7 @@ def tag(ctx, g, t, sel=""):
 
 def note_parts(g, n):
     """(heading, meta, body, linked-from) of a note: shared by the full page and the preview pane."""
-    body = g.render(n, "", False, mode="kura", prefix=g.prefix).lstrip()
+    body = api.render(g, n, "kura").lstrip()
     if body.startswith("<h1") and "</h1>" in body:
         cut = body.index("</h1>") + 5
         heading, body = body[:cut], body[cut:]
