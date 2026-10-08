@@ -113,18 +113,26 @@ def tree(g, notes, prefix, open_path, depth=0):
     return '<ul class="kfolds">%s</ul>' % "".join(rows) if rows else ""
 
 
-def note_row(g, n, sel=None, show_folder=True, snippet=None, chip=None):
+def note_row(g, n, sel=None, show_folder=True, snippet=None, chip=None, card=False):
     """Middle column: one note (the link opens it; on wide screens kura.js previews it instead). `chip`: the vault
-    to name on the row (a search across vaults; g is the note's own vault)."""
+    to name on the row (a search across vaults; g is the note's own vault). `card`: Shiori's result card (search and
+    Recent, where a note is read on its own) instead of a dense row (folders, tags, Home)."""
     date = g.tended.get(n.rel, "")
     meta = [e(os.path.dirname(n.rel))] if show_folder and "/" in n.rel else []
-    if chip is not None:
-        meta.insert(0, '<span class="chip%s">%s</span>' % (" private" if chip.private else "", e(chip.title)))
     if date:
         meta.append('<span title="%s">%s</span>' % (e(date), e(relative(date))))
     text = n.description if snippet is None else snippet
+    sel_class = " sel" if sel is n else ""
+    vault = '<span class="chip%s">%s</span>' % (" private" if chip.private else "", e(chip.title)) if chip is not None else ""
+    if card:
+        return ('<li class="card"><a class="kn%s" href="%s/n/%s"><span class="title">%s</span>%s%s</a></li>'
+                % (sel_class, g.prefix, quote(n.slug), e(n.title),
+                   ('<span class="meta">%s%s</span>' % (vault, ("<span>%s</span>" % " &middot; ".join(meta)) if meta else "")) if meta or vault else "",
+                   ('<span class="snippet">%s</span>' % e(text)) if text else ""))
+    if vault:
+        meta.insert(0, vault)
     return ('<li><a class="kn%s" href="%s/n/%s"><b>%s</b>%s%s</a></li>'
-            % (" sel" if sel is n else "", g.prefix, quote(n.slug), e(n.title),
+            % (sel_class, g.prefix, quote(n.slug), e(n.title),
                ('<span class="kmeta">%s</span>' % " &middot; ".join(meta)) if meta else "",
                ('<small>%s</small>' % e(text)) if text else ""))
 
@@ -251,11 +259,12 @@ def pick(g, listed, sel):
 
 
 def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra="", wide=False, preview_of=None,
-            searching=None):
+            searching=None, cards=False):
     """The three-column reader: folders | notes | preview (two columns on tablets, one on phones). `preview_of`:
     (vault, note) to preview instead of picking from `listed` (a search across vaults). `searching`: (query,
     everywhere, focus) on /search, whose pill is the page's field; its <main> then names its own classes
-    (`live-main`) so kura.js can give them to any page the results are shown on as you type."""
+    (`live-main`) so kura.js can give them to any page the results are shown on as you type. `cards`: the list is Shiori's
+    result cards (`ul.cards`), not dense rows."""
     pane = shell.preview_pane(ctx) and not wide          # Reading → Preview Pane, off: the list has the room
     pg = g
     if preview_of:
@@ -267,7 +276,7 @@ def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra=""
     body = ('<main class="%s">%s<nav class="kside" aria-label="Folders"><h3 class="sechead">Folders</h3>%s</nav>'
             '<section class="klist">%s%s%s</section>%s</main>'
             % (cls, ('<div class="live-main" data-class="%s" hidden></div>' % cls) if searching else "",
-               tree(g, visible(g), "", open_path), head, ('<ul class="kns">%s</ul>' % items) if items else "", extra,
+               tree(g, visible(g), "", open_path), head, ('<ul class="%s">%s</ul>' % ("cards" if cards else "kns", items)) if items else "", extra,
                ('<aside class="kpreview" aria-label="Preview">%s</aside>' % preview(pg, n)) if pane else ""))
     q, everywhere, focus = searching or ("", False, False)
     return npage(ctx, g, title, top(ctx, g, current, q=q, everywhere=everywhere, focus=focus) + body, current)
@@ -311,7 +320,7 @@ def note(ctx, g, n):
 def recent(ctx, g, sel=""):
     listed = recent_notes(g, 150)
     return columns(ctx, g, "Recent", "recent", None, '<h3 class="sechead">Recently Changed</h3>',
-                   lambda n: (note_row(g, x, n) for x in listed), listed, sel)
+                   lambda n: (note_row(g, x, n, card=True) for x in listed), listed, sel, cards=True)
 
 
 def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
@@ -346,8 +355,8 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
     if everywhere:
         sel = ""                                                # a ?p= slug is ambiguous across vaults
     def row(x, n, sel_n, snip=None):
-        return note_row(x, n, sel_n, snippet=snip, chip=x if x is not g else None) if snip is not None \
-            else note_row(x, n, sel_n, chip=x if x is not g else None)
+        return note_row(x, n, sel_n, snippet=snip, chip=x if x is not g else None, card=True) if snip is not None \
+            else note_row(x, n, sel_n, chip=x if x is not g else None, card=True)
 
     def rows(sel_n):
         if not title_hits and not text_hits:        # nothing at all: one empty state instead of two headings
@@ -363,4 +372,4 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
             out.append('<li class="muted">%s</li>' % e(error or "Nothing else in the note text."))
         return out
     return columns(ctx, g, q, "search", None, box, rows, mine, sel, shell.house.handoff(q, shell.rooms()),
-                   preview_of=first, searching=searching)
+                   preview_of=first, searching=searching, cards=True)

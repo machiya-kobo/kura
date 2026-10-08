@@ -217,6 +217,27 @@ class NoteApiTest(unittest.TestCase):
         self.assertEqual([n["path"] for n in d["notes"]], ["MOC/Crafts.md", "Projects/Lantern.md"])
         self.assertEqual(d["missing"], ["Nope.md"])
 
+    def test_search_and_recent_are_result_cards_and_the_browser_stays_rows(self):
+        # Shiori's result cards where a note is read on its own; dense rows in the three-column browser (Home, folders, tags)
+        for path in ("/recent", "/search?q=tea", "/search?q=zebrafish&vaults=all"):
+            _, body = get(path)
+            self.assertIn('<ul class="cards">', body, path)
+            self.assertNotIn('<ul class="kns">', body, path)
+            self.assertRegex(body, r'<li class="card"><a class="kn[ "][^>]*href="/(?:v/work/)?n/[^"]+"><span class="title">', path)
+            self.assertIn('class="snippet"', body, path)
+        for path in ("/", "/f/Notes", "/t/topic", "/v/work/f/Runbooks"):
+            body = fetch(path)[2]
+            self.assertIn('<ul class="kns">', body, path)
+            self.assertNotIn('class="card"', body, path)
+        _, body = get("/recent")
+        self.assertEqual(body.count('class="kn sel"'), 1)                     # the note in the preview pane
+        _, _, body = fetch("/search?q=zebrafish&vaults=all")
+        self.assertIn('<span class="meta"><span class="chip private">Work Notes</span>', body)   # the vault, as a state chip
+        self.assertEqual(body.count('<li class="khd">'), 2)                  # Titles, Full Text: written in Title Case
+        self.assertIn('<li class="khd">Full Text', body)
+        css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kura.css")).read()
+        self.assertNotIn("text-transform: uppercase", css)                    # headings are drawn as written (style guide, v0.27)
+
     def test_recent_tags_folders(self):
         _, d = getj("/api/recent?limit=2")
         self.assertEqual((d["total"], len(d["results"])), (4, 2))
@@ -694,6 +715,15 @@ class ContrastTest(unittest.TestCase):
                     self.assertGreaterEqual(palettes.contrast(c, t["bg"]), self.NEED, ("outlined", where))
                 for name in ("orange", "yellow"):
                     self.assertGreaterEqual(palettes.contrast(t["bg"], t[name]), self.NEED, ("current pill", key, mode, name))
+
+    def test_search_and_recent_cards_are_readable_in_every_theme(self):
+        # a result card is a raised panel: its title (the room's colour) and the vault chip take their panel shades, the
+        # snippet is fg2 and the meta row menu-muted, all on --card (a hover changes the outline, never the fill)
+        for key in palettes.PALETTES:
+            for mode in ("dark", "light"):
+                t = palettes.tokens(key, mode)
+                for name in ("orange-panel", "yellow-panel", "fg2", "menu-muted", "menu-fg"):
+                    self.assertGreaterEqual(palettes.contrast(t[name], t["card"]), self.NEED, (key, mode, name, "on card"))
 
 
 class VaultsTest(unittest.TestCase):
