@@ -33,13 +33,13 @@ function obsidianLinks(root = document) {
     const meta = art.querySelector(".nmeta");
     if (!meta || meta.querySelector("a.obsidian")) continue;
     const a = document.createElement("a");
-    a.className = "obsidian";
+    a.className = "chip link obsidian";
     // the default vault is the one named in Settings; a work vault carries its own Obsidian name (data-obsidian)
     a.href = "obsidian://open?vault=" + encodeURIComponent(art.dataset.obsidian || device) + "&file=" +
       encodeURIComponent(art.dataset.path.replace(/\.md$/, ""));
     a.textContent = "Edit in Obsidian";
     const br = meta.querySelector("br");
-    meta.insertBefore(document.createTextNode(" \u00b7 "), br);
+    meta.insertBefore(document.createTextNode(" "), br);
     meta.insertBefore(a, br);
   }
 }

@@ -87,6 +87,7 @@ import kura        # noqa: E402
 import search      # noqa: E402
 import sites       # noqa: E402
 import api         # noqa: E402
+from vaultkit import palettes  # noqa: E402
 from vaultkit import histerauth  # noqa: E402
 from vaultkit import websafe  # noqa: E402
 from vaultkit import identity  # noqa: E402
@@ -282,6 +283,26 @@ class ShellTest(unittest.TestCase):
             self.assertIn(want, body)
         for name in ("machiya.css", "machiya.js", "machiya-sw.js"):
             self.assertEqual(get("/static/" + name)[0], 200, name)
+
+    def test_favicons_are_kuras_own(self):
+        # the tab's icon is the small variant (it reads at 16 px) with the .ico beside it; the home-screen icons stay the full drawing
+        _, body = get("/")
+        self.assertIn('<link rel="icon" href="/static/icons/kura-small.svg" type="image/svg+xml">', body)
+        self.assertIn('<link rel="alternate icon" href="/static/icons/kura.ico" sizes="16x16 32x32 48x48">', body)
+        self.assertIn('<link rel="apple-touch-icon" href="/static/icons/kura-apple-180.png">', body)
+        for path, kind in (("/static/icons/kura-small.svg", "image/svg+xml"), ("/static/icons/kura.ico", "image/x-icon"),
+                           ("/favicon.ico", "image/x-icon")):
+            status, h, data = fetch(path)
+            self.assertEqual((status, h["Content-Type"]), (200, kind), path)
+        def raw(path):
+            req = urllib.request.Request(BASE + path, headers={"Tailscale-User-Login": "owner@test"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.read()
+        ico = raw("/static/icons/kura.ico")
+        self.assertEqual(ico, raw("/favicon.ico"))
+        self.assertEqual(ico[:4], b"\0\0\1\0")                                  # an ICO header
+        self.assertEqual(sorted((ico[6 + 16 * i] or 256, ico[7 + 16 * i] or 256) for i in range(int.from_bytes(ico[4:6], "little"))),
+                         [(16, 16), (32, 32), (48, 48)])
 
     def test_search_pill_on_every_page_and_no_search_tab_or_link(self):
         # The search field is the pill under the pinned header (machiya.js shows results as you type): on every page of
@@ -555,6 +576,26 @@ class AuthTest(unittest.TestCase):
         self.assertIn("KURA_AUTH must be tailscale or open", r.stderr)
 
 
+class ContrastTest(unittest.TestCase):
+    """Rule 4 of Machiya's style guide: every text 4.5:1 in all ten themes, dark and light, on what it is drawn on. These are
+    Kura's own pairings of the shared pills and chips: the outlined pill and link chip in their colour on the page, the
+    current pill's page-coloured text on its fill. (The shared hover tint, 14% of the colour over the page, is vaultkit's.)"""
+    NEED = 4.5
+
+    def test_pills_and_link_chips_are_readable_in_every_theme(self):
+        for key in palettes.PALETTES:
+            for mode in ("dark", "light"):
+                t = palettes.tokens(key, mode)
+                # orange: the room's pill and the Kura links; yellow: a work vault's pill and chip; muted: a vault's chip; the
+                # rest are the link chips to the rooms (green Niwa, magenta Konbini, blue the house) and Obsidian's fg2
+                for name in ("orange", "yellow", "muted", "green", "magenta", "blue", "fg2"):
+                    c = t[name]
+                    where = (key, mode, name)
+                    self.assertGreaterEqual(palettes.contrast(c, t["bg"]), self.NEED, ("outlined", where))
+                for name in ("orange", "yellow"):
+                    self.assertGreaterEqual(palettes.contrast(t["bg"], t[name]), self.NEED, ("current pill", key, mode, name))
+
+
 class VaultsTest(unittest.TestCase):
     """Other vaults (docs/contracts/kura-api.md, "Vaults"): additive, private, never stored, never pushed."""
 
@@ -661,12 +702,24 @@ class VaultsTest(unittest.TestCase):
         _, _, body = fetch("/v/work/search?q=zebrafish")
         self.assertIn("Zebrafish deploy", body)
 
+    def test_search_scope_is_a_row_of_pills(self):
+        # the vault being read and All Vaults: Shiori's filter pills, the current one marked; a work vault wears yellow
+        _, _, body = fetch("/search?q=zebrafish")
+        self.assertIn('<nav class="pills scope" aria-label="Search In"><a class="pill" aria-current="page" href="/search?q=zebrafish">'
+                      'Personal</a><a class="pill" href="/search?q=zebrafish&amp;vaults=all">All Vaults</a></nav>', body)
+        _, _, body = fetch("/search?q=zebrafish&vaults=all")
+        self.assertIn('<a class="pill" href="/search?q=zebrafish">Personal</a>'
+                      '<a class="pill" aria-current="page" href="/search?q=zebrafish&amp;vaults=all">All Vaults</a>', body)
+        _, _, body = fetch("/v/work/search?q=zebrafish")
+        self.assertIn('<a class="pill" aria-current="page" href="/v/work/search?q=zebrafish" style="--pill: var(--yellow)">Work Notes</a>', body)
+        self.assertNotIn("Searching <b>", body)                               # the old sentence is gone
+
     def test_header_switch(self):
         _, _, body = fetch("/")
-        self.assertIn('<details class="vaults"><summary class="chip" ', body)
+        self.assertIn('<details class="vaults"><summary class="chip link" ', body)
         self.assertIn('<a href="/v/work/">Work Notes<small>2 · private</small></a>', body)
         _, _, body = fetch("/v/work/")
-        self.assertIn('<summary class="chip private"', body)
+        self.assertIn('<summary class="chip link private"', body)
         self.assertIn('action="/v/work/search"', body)
         self.assertIn('href="/v/work/recent"', body)                        # nav and tabs keep the prefix
 
@@ -967,7 +1020,7 @@ class ExternalLinksTest(unittest.TestCase):
         api.SHIORI_LINKS = True
         try:
             _, _, page = fetch("/n/Projects/Lantern")
-            self.assertIn('href="shiori://save-links?path=Projects/Lantern.md">Save links in Shiori</a>', page)
+            self.assertIn('<a class="chip link thing" href="shiori://save-links?path=Projects/Lantern.md">Save Links in Shiori</a>', page)
             _, _, page = fetch("/n/Notes/Paper%20lanterns")
             self.assertIn("shiori://save-links?path=Notes/Paper%20lanterns.md", page)    # the vault path, percent-encoded
             _, _, page = fetch("/n/MOC/Crafts")

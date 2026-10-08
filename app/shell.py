@@ -18,7 +18,8 @@ from vaultkit.shell import OFFLINE_PIN, e, prefs  # noqa: F401  (kura.py and pag
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 UI_DIR = house.UI_DIR
 ICON_DIR = os.path.join(STATIC_DIR, "icons")
-ICONS = set(n for n in os.listdir(ICON_DIR) if n.endswith((".png", ".svg"))) if os.path.isdir(ICON_DIR) else set()
+ICONS = set(n for n in os.listdir(ICON_DIR) if n.endswith((".png", ".svg", ".ico"))) if os.path.isdir(ICON_DIR) else set()
+ICON_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
 OWN_FILES = ("kura.css", "kura.js", "mermaid.min.js")
 NIWA_URL = ""                       # e.g. https://niwa.example.ts.net (no trailing slash); "" = no link
 KONBINI_URL = ""
@@ -154,7 +155,7 @@ def vault_switch(site):
         ('<b>%s<small>%s</small></b>' if x is site else '<a href="%s/">%s<small>%s</small></a>')
         % ((e(x.title), what(x)) if x is site else (e(x.prefix), e(x.title), what(x)))
         for x in sites())
-    return ('<details class="vaults"><summary class="chip%s" title="Vaults" aria-label="Vaults: %s">%s</summary>'
+    return ('<details class="vaults"><summary class="chip link%s" title="Vaults" aria-label="Vaults: %s">%s</summary>'
             '<nav class="menu" aria-label="Vaults">%s</nav></details>'
             % (" private" if site.private else "", e(site.title), e(site.title), rows))
 

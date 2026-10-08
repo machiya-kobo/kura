@@ -23,7 +23,7 @@ main.garden { max-width: 900px; }
 .crumbs a { color: inherit; }
 article.note .nhead h1 { margin: 10px 0 2px; font-size: var(--fs-xxl); line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
 .nmeta { color: var(--muted); margin: 0 0 14px; line-height: 1.9; font-size: var(--fs-s); }
-.nmeta .tag { margin-right: 4px; }
+.nmeta .tag, .nmeta .chip { margin-right: 4px; }
 .nmeta a.obsidian { color: var(--fg2); }
 ul.garden-list { list-style: none; padding: 0; margin: 0 0 var(--sp-2); }
 ul.garden-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -49,7 +49,7 @@ ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(-
 .vaults .menu b { background: var(--hl); }
 .vaults .menu small { color: var(--menu-muted, var(--muted)); font-weight: 400; margin-left: auto; }   /* a raised panel, like Rooms */
 .kmeta .chip { margin-right: 4px; }
-p.scope { margin: 0 0 var(--sp-3); font-size: var(--fs-s); }
+.klist .pills { margin: 0 0 var(--sp-3); }
 
 /* ---- the reader: folders | notes | preview (pages.columns) ------------------------------------------------- */
 .kgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; }

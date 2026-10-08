@@ -527,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
     def is_page(self):
         """A page a browser opens (a 401 there links to /signin), not the API, a feed, a script or a stylesheet."""
         path = urlsplit(self.path).path
-        return not (path.startswith(("/api/", "/static/")) or path.endswith((".xml", ".js", ".webmanifest")))
+        return not (path.startswith(("/api/", "/static/")) or path.endswith((".xml", ".js", ".webmanifest", ".ico")))
 
     def reply(self, status, headers, body):
         """A vaultkit.signin answer, (status, [(header, value)], bytes), as it is: its own Set-Cookie headers and no
@@ -731,8 +731,8 @@ class Handler(BaseHTTPRequestHandler):
         if HISTER is not None and path == "/signed-out":    # where a sign-out lands: no notes, no vault names
             return self.send(200, shell.signed_out(self.ctx()), headers=[NO_STORE])
         if (HISTER is not None or (IDENTITY is not None and IDENTITY.signin)) and (
-                path in SHARED_UI or path.startswith("/static/icons/")):
-            return self.static(path[8:], query)          # the sign-in page's stylesheet and icons: vendored, no notes
+                path in SHARED_UI or path.startswith("/static/icons/") or path == "/favicon.ico"):
+            return self.static("icons/kura.ico" if path == "/favicon.ico" else path[8:], query)   # the sign-in page's stylesheet and icons: vendored, no notes
         if not self.allowed():
             return self.refuse()
         if path == "/api/prefs":
@@ -753,6 +753,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, shell.offline(ctx))
         if path.startswith("/static/"):
             return self.static(path[8:], query)
+        if path == "/favicon.ico":      # what a browser or a tool asks for first: the room's favicon.ico
+            return self.static("icons/kura.ico", query)
         if path == "/theme":            # the no-JavaScript fallback for /settings' Theme
             theme = (query.get("set") or ["system"])[0]
             theme = {"auto": "system"}.get(theme, theme)
@@ -810,7 +812,7 @@ class Handler(BaseHTTPRequestHandler):
             icon = name[6:]
             if icon in shell.ICONS:
                 with open(os.path.join(shell.ICON_DIR, icon), "rb") as f:
-                    return self.send(200, f.read(), "image/svg+xml" if icon.endswith(".svg") else "image/png",
+                    return self.send(200, f.read(), shell.ICON_TYPES[os.path.splitext(icon)[1]],
                                      headers=[("Cache-Control", "public, max-age=604800")])
         elif name in STATIC_TYPES:
             cache = "public, max-age=31536000, immutable" if query.get("v") else "max-age=300"

@@ -174,9 +174,14 @@ def tag(ctx, g, t, sel=""):
         for x in set(n.tags):
             if x.startswith(t + "/") and not x.endswith("/"):
                 children[x] = children.get(x, 0) + 1
-    cloud = '<div class="tagcloud">%s</div>' % "".join(tag_link(g, x, c) for x, c in sorted(children.items()))
-    if len(children) > 12:                          # #topic has 100+: keep the note list in view
+    if len(children) > 12:                          # #topic has 100+: an index to open, not a row of choices
+        cloud = '<div class="tagcloud">%s</div>' % "".join(tag_link(g, x, c) for x, c in sorted(children.items()))
         cloud = '<details class="ktags"><summary>%d Nested Tags</summary>%s</details>' % (len(children), cloud)
+    else:                                           # a few: filter pills, this tag first and current
+        cloud = '<nav class="pills" aria-label="Nested Tags"><a class="pill" aria-current="page" href="%s/t/%s">All<span class="count">%d</span></a>%s</nav>' % (
+            g.prefix, quote(t), len(listed),
+            "".join('<a class="pill" href="%s/t/%s">%s<span class="count">%d</span></a>' % (g.prefix, quote(x), e(x[len(t) + 1:]), c)
+                    for x, c in sorted(children.items())))
     head = ('<p class="crumbs">%s</p><h2 class="ktitle">#%s <span class="kcount">%d</span></h2>%s'
             % (" / ".join(parts), e(t), len(listed), cloud if children else ""))
     return columns(ctx, g, "#" + t, "tags", None, head,
@@ -192,30 +197,30 @@ def note_parts(g, n):
     else:
         heading = "<h1>%s</h1>" % e(n.title)
     tended = g.tended.get(n.rel, "")
-    meta = []
+    meta, chips = [], []
     if n.planted:
         meta.append('created <span title="%s">%s</span>' % (e(n.planted), e(relative(n.planted))))
     if tended:
         meta.append('changed <span title="%s">%s</span>' % (e(tended), e(relative(tended))))
     if not g.default:               # Niwa and Konbini read the default vault only: no garden, no board here
-        meta.append('<span class="chip%s">%s</span>' % (" private" if g.private else "", e(g.title)))
+        chips.append('<span class="chip%s">%s</span>' % (" private" if g.private else "", e(g.title)))
     elif n.published:
-        meta.append(('<a class="thing is-garden" href="%s/n/%s">View in Niwa</a>' % (e(shell.NIWA_URL), quote(n.slug)))
-                    if shell.NIWA_URL else '<span class="chip">Published</span>')
+        chips.append(('<a class="chip link thing is-garden" href="%s/n/%s">View in Niwa</a>' % (e(shell.NIWA_URL), quote(n.slug)))
+                     if shell.NIWA_URL else '<span class="chip">Published</span>')
     else:
-        meta.append('<span class="chip">Not Published</span>')
+        chips.append('<span class="chip">Not Published</span>')
     # shiori://save-links names a path, not a vault: Shiori reads it in the default vault
     if api.SHIORI_LINKS and g.default and api.external_links(g, n, api.PUBLIC_URL):
-        meta.append('<a class="thing" href="shiori://save-links?path=%s">Save links in Shiori</a>' % e(quote(n.rel)))
+        chips.append('<a class="chip link thing" href="shiori://save-links?path=%s">Save Links in Shiori</a>' % e(quote(n.rel)))
     card = api.card_url(n) if g.default else None
     if card:
-        meta.append('<a class="thing is-card" href="%s">View Card in Konbini</a>' % e(card))
+        chips.append('<a class="chip link thing is-card" href="%s">View Card in Konbini</a>' % e(card))
     tags = " ".join(tag_link(g, t) for t in n.tags if t.startswith(("topic/", "area/", "machine/")) and not t.endswith("/"))
     back = sorted((g.notes[r] for r in g.backlinks.get(n.rel, ()) if r in g.notes and not r.startswith(HIDDEN)),
                   key=lambda x: x.title.lower())
     linked = ('<section class="gsec"><h3 class="sechead">Linked From</h3><ul class="garden-list plain">%s</ul></section>'
               % "".join(note_li(g, x) for x in back)) if back else ""
-    return heading, " &middot; ".join(meta) + (("<br>" + tags) if tags else ""), body, linked
+    return heading, " &middot; ".join(meta) + (" " if meta else "") + " ".join(chips) + (("<br>" + tags) if tags else ""), body, linked
 
 
 def obsidian_attr(g):
@@ -316,9 +321,11 @@ def search(ctx, g, q, hits, total, error="", sel="", everywhere=False):
     scope_sites = shell.sites() if everywhere else [g]
     box = ""
     if len(shell.sites()) > 1:
-        other = ('<a href="%s?q=%s">%s Only</a>' % (action, quote(q), e(g.title))) if everywhere else \
-            ('<a href="%s?q=%s&amp;vaults=all">All Vaults</a>' % (action, quote(q)))
-        box = '<p class="muted scope">Searching <b>%s</b> &middot; %s</p>' % ("All Vaults" if everywhere else e(g.title), other)
+        here = '<a class="pill"%s href="%s?q=%s"%s>%s</a>' % (
+            "" if everywhere else ' aria-current="page"', action, quote(q),
+            ' style="--pill: var(--yellow)"' if g.private else "", e(g.title))
+        box = '<nav class="pills scope" aria-label="Search In">%s<a class="pill"%s href="%s?q=%s&amp;vaults=all">All Vaults</a></nav>' % (
+            here, ' aria-current="page"' if everywhere else "", action, quote(q))
     searching = (q, everywhere, not q)                          # the pill is the field; the empty page focuses it
     if not q:
         return columns(ctx, g, "Search", "search", None,
