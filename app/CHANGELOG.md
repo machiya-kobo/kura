@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.10.0
+
+- New `KURA_TRUSTED_PROXIES` (peer addresses, like `10.210.4.2/32`): identity headers (`Tailscale-User-Login` and the other `Tailscale-*` headers, `Remote-User`, `KURA_AUTH_HEADER`) count only from those peers; any other peer is anonymous. Unset, every peer's headers count, as before.
+- **Changed:** `KURA_AUTH=tailscale` (with or without an identity file) and `KURA_AUTH=hister` with `KURA_AUTH_FALLBACK=tailscale` now refuse to start on a non-loopback `KURA_BIND` without `KURA_TRUSTED_PROXIES`. `KURA_BIND_BEHIND_PROXY=1` alone no longer opens a public bind for them, because it can't tell the proxy from another container on the same network. Listening on 127.0.0.1 behind `tailscale serve` needs nothing new.
+
 ## 0.9.8
 
 - `KURA_AUTH_FALLBACK=tailscale` now works with `KURA_AUTH=hister`, like Niwa and Konbini: only while the sign-in helper or Hister can't answer, a Tailscale login listed in `KURA_USERS` gets in, with a banner. The default is still `none`.
