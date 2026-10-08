@@ -4,6 +4,8 @@
 
 Kura (蔵, storehouse) is Machiya's notes app. Read every note in your Obsidian vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
 
+Agentically coded with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+
 <p align="center">
 <a href="https://machiya-kobo.github.io/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/install.md">Install</a> · <a href="docs/settings.md">Settings</a> · <a href="docs/access.md">Access</a> · <a href="https://github.com/machiya-kobo/machiya/blob/main/docs/contracts/kura-api.md">API</a> · <a href="#license">License</a>
 </p>
