@@ -727,7 +727,8 @@ class ContrastTest(unittest.TestCase):
                     self.assertGreaterEqual(palettes.contrast(c, t["bg"]), self.NEED, ("outlined", where))
                 for name in ("orange", "yellow"):
                     self.assertGreaterEqual(palettes.contrast(t["bg"], t[name]), self.NEED, ("current pill", key, mode, name))
-                    self.assertGreaterEqual(palettes.contrast(t[name + "-panel"], t["hl"]), self.NEED, ("hovered pill", key, mode, name))   # v0.27.3: lifted onto --hl
+                    shade = t[name + "-hover"]                     # v0.27.4: the hovered pill's text and outline, on 24% of it over --hl
+                    self.assertGreaterEqual(palettes.contrast(shade, palettes.mix(shade, t["hl"], 24)), self.NEED, ("hovered pill", key, mode, name))
 
     def test_search_and_recent_cards_are_readable_in_every_theme(self):
         # a result card is a raised panel: its title (the room's colour) and the vault chip take their panel shades, the
