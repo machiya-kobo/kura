@@ -2,10 +2,10 @@
 
 [Machiya](https://github.com/machiya-kobo/machiya) is a set of small self-hosted apps for finding what you've read: your pages ([Hister](https://github.com/asciimoo/hister)), the web ([SearXNG](https://github.com/searxng/searxng)), your notes ([Obsidian](https://obsidian.md)) and your code ([Forgejo](https://forgejo.org) or [GitHub](https://github.com)).
 
-Kura (蔵, "storehouse") is the notes app for Machiya and reads every note in your Obsidian vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
+Kura (蔵, storehouse) is Machiya's notes app. Read every note in your Obsidian vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
 
 <p align="center">
-<a href="https://machiya-kobo.github.io/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/access.md">Who Can Use It</a> · <a href="docs/install.md#with-a-container-docker-or-podman">Container</a> · <a href="docs/install.md#natively-on-the-bsds">BSDs</a> · <a href="docs/install.md#as-part-of-the-machiya-stack">Machiya Stack</a> · <a href="docs/settings.md">Settings</a> · <a href="docs/install.md#your-own-vault">Install</a> · <a href="#license">License</a>
+<a href="https://machiya-kobo.github.io/">Machiya</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/install.md">Install</a> · <a href="docs/settings.md">Settings</a> · <a href="docs/access.md">Access</a> · <a href="https://github.com/machiya-kobo/machiya/blob/main/docs/contracts/kura-api.md">API</a> · <a href="#license">License</a>
 </p>
 
 <p align="center"><a href="docs/screenshots/kura-home-dark.png"><img src="docs/screenshots/kura-home-dark.png" alt="Kura in the dark theme: folders on the left, recently changed notes in the middle, the note Bamboo frames previewed on the right" width="100%"></a><br>Browse folders and preview notes side by side</p>
@@ -23,15 +23,12 @@ Kura (蔵, "storehouse") is the notes app for Machiya and reads every note in yo
 - **Follow every link.** Every `[[wikilink]]` works, with backlinks from the whole vault, folders, tags (nested ones too) and recently changed.
 - **Search everything.** SQLite FTS5: `"phrases"`, `-exclusions`, `prefix*`, `title:`, `tag:`, `folder:` and `vault:`, ranked by bm25 with titles first.
 - **Read offline.** Install it as a PWA. The 200 notes you read last stay on the device for when you're off The Internet, and notes with `offline: true` stay for good. Nothing under `Archive/` is ever kept.
-- **Keep work notes apart.** `KURA_VAULTS` adds more vaults (say `work` or `team`) at `/v/<name>/`, with a vault switch in the header. A vault is **private** unless marked `+shared`: a yellow chip, never pushed to Hister, never stored on a device, no external links, no feed. A **shared** vault works like the default one: kept offline, external links, its own `/v/<name>/feed.xml`, pushed to Hister. Neither gets Niwa or Konbini links (those apps read the default vault only), and API clients see either only when they ask with `vault=`. See "Vaults" in the API contract.
-- **Feed the other apps.** Every note link in Machiya lands here. Shiori, the search app, reads its notes from the JSON API: `/api/search`, `/api/notes`, `/api/note` (with `external_links`: the note's http, https, Gemini and Gopher links), `/api/links` (a folder's external links in one call, never for a private vault), `/api/recent`, `/api/tags`, `/api/folders`, `/api/vaults`, `/api/offline`, `/api/status`, `/api/changelog`, plus `/feed.xml`. With `KURA_HISTER_URL`, every note goes into Hister too.
-
-The [Machiya repository](https://github.com/machiya-kobo/machiya) has the architecture, the principles and the API contract (`docs/contracts/kura-api.md`).
+- **Keep work notes apart.** `KURA_VAULTS` adds more vaults (say `work` or `team`) at `/v/<name>/`, with a switch in the header. A vault is **private** unless marked `+shared`: never pushed to Hister, stored on a device or put in a feed ([the rules](docs/settings.md), [the API](https://github.com/machiya-kobo/machiya/blob/main/docs/contracts/kura-api.md#vaults)).
+- **Feed the other apps.** Every note link in Machiya lands here. Shiori, the search app, reads your notes from the [JSON API](https://github.com/machiya-kobo/machiya/blob/main/docs/contracts/kura-api.md), with an RSS feed at `/feed.xml`. With `KURA_HISTER_URL`, every note goes into Hister too.
 
 ## Quickstart
 
-Run Kura on the sample vault in `sample-vault/`: a made-up paper-lantern workshop and a trip to Kyoto, 27 notes. No
-account, no Tailscale. You need `git`, `curl` and Python 3.12 or later. On Debian 13:
+Run Kura on the sample vault: 27 invented notes about a paper-lantern workshop and a trip to Kyoto. You need `git`, `curl` and Python 3.11 or later. On Debian 13:
 
 <!-- quickstart: quick-debian:packages -->
 ```bash
@@ -44,7 +41,7 @@ sudo apt-get update && sudo apt-get install -y git curl python3-venv
 git clone https://github.com/machiya-kobo/kura.git && cd kura
 ```
 
-**2. Install the two Python packages** (`markdown` 3.11 or later and `pyyaml`) in a virtual environment:
+**2. Install `markdown` 3.11+ and `pyyaml`** in a virtual environment:
 
 <!-- quickstart: quick:python -->
 ```bash
@@ -80,21 +77,15 @@ Ctrl-C stops it.
 
 ### Next
 
-- **Read your own vault:** point `KURA_REPO_DIR` at its checkout, and `KURA_REPO_SUBDIR` at the notes folder if it isn't the top ([more](docs/install.md#your-own-vault)).
-- **Run it in a container or on the BSDs:** [install guide](docs/install.md).
+- **Read your own vault:** point `KURA_REPO_DIR` at its checkout, `KURA_DB` at a file of your own, and `KURA_REPO_SUBDIR` at the notes folder if it isn't the top ([more](docs/install.md#your-own-vault)).
+- **Run it in a container or on the BSDs:** [the install guide](docs/install.md#in-a-container).
 - **Let other people in, or sign in:** [who can use it](docs/access.md).
 - **Run it with the other Machiya apps:** [the stack](docs/install.md#as-part-of-the-machiya-stack).
 - **Every setting:** [settings](docs/settings.md).
 - **Change the code:** [how Kura works](docs/layout.md).
 
-## More ways to run it
-
-Containers, the BSDs, your own vault and the full Machiya stack are in the [install guide](docs/install.md).
-
 ## License
 
 Copyright (C) 2026 Micheal Waltz and Machiya contributors.
 
-Kura is free software: GNU Affero General Public License, version 3 or (at your option) any later version.
-See `LICENSE`. Third-party software it ships or installs (Mermaid, Python Markdown, PyYAML) is listed with its
-licenses in `THIRD_PARTY_NOTICES`.
+Kura is free software under the GNU Affero General Public License, version 3 or (at your option) any later version: see [LICENSE](LICENSE). What it ships from other projects (Mermaid, Python Markdown, PyYAML) is listed with their licenses in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Contributions are welcome: [CONTRIBUTING.md](CONTRIBUTING.md); report a vulnerability privately: [SECURITY.md](SECURITY.md).

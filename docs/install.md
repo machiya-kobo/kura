@@ -1,13 +1,12 @@
-# Installing Kura
+# Install Kura
 
-Kura needs Python 3.12 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml` and `git`, or the container
+Kura needs Python 3.11 or later (the image has 3.13), `markdown` 3.11 or later, `pyyaml` and `git`, or the container
 image. Nothing else from Machiya. It reads a git repository (or a folder in one) that holds an Obsidian vault, and it
 never writes to it.
 
-The walkthroughs below start in a clone, like the [Quickstart](../README.md#quickstart). Kura reads a git repository,
-so each one turns a copy of the sample vault into a repository of its own, as your vault would be.
+The walkthroughs below start in a clone, like the [Quickstart](../README.md#quickstart).
 
-## With a container (Docker or Podman)
+## In a container
 
 Neither installed? On Debian 13, install `podman` (and `catatonit`, the small init that `--init` uses with podman):
 
@@ -86,12 +85,11 @@ $DOCKER rm -f kura
 On Linux and macOS, the Quickstart is the native install. On the BSDs:
 
 - Kura also needs SQLite with FTS5. Every package below has it.
-- A fresh FreeBSD or OpenBSD has no `git`. The lines below include it.
 - Every BSD's `markdown` package is too old today (FreeBSD and OpenBSD 3.10.2, NetBSD 3.10.3), and Kura refuses to
-  start with one: an old `markdown` can run out of memory on a single note under Python 3.13. So the packages leave it
-  out and a virtual environment gets it from pip.
-- Run the package commands as root, or with `sudo` or `doas`. A fresh FreeBSD or NetBSD has neither: run them as root
-  without the `sudo`, or install `sudo` first.
+  start with one: an old `markdown` can run out of memory on a single note under Python 3.13. So a virtual environment
+  gets it from pip.
+- The package blocks use `sudo` or `doas`; as root, drop it. A fresh FreeBSD or NetBSD has neither: run them as root,
+  or install `sudo` first.
 
 **OpenBSD 7.9:**
 
@@ -201,7 +199,7 @@ docker run --init -p 127.0.0.1:8080:8080 -v kura-data:/data \
 
 `token` is a file holding the git host's access token. Drop the `-v` and `KURA_REPO_TOKEN_FILE` lines for a public
 repository; `ssh://` and `file://` URLs work too. `KURA_AUTH=open` turns the identity check off: anyone who can reach
-port 8080 reads every note, so the port is published on `127.0.0.1` only. Open <http://127.0.0.1:8080/>.
+port 8080 reads every note, so the port is published on `127.0.0.1` only. Open <http://127.0.0.1:8080/>; Ctrl-C stops it.
 
 **On a checkout you already have** (read-only, no clone):
 
@@ -216,27 +214,25 @@ own conventions (frontmatter, tags, folders) are in Machiya's [`docs/frontmatter
 
 ## As part of the Machiya stack
 
-Machiya is several small apps around one vault. Each app is a **room** (Kura is the one that reads and searches every
-note), and the rooms share one look and one set of settings. To run Kura with the others, follow the
-[Quickstart in the Machiya README](https://github.com/machiya-kobo/machiya#quickstart). The stack's own settings are in
+To run Kura with the other Machiya apps, follow the [Quickstart in the Machiya README](https://github.com/machiya-kobo/machiya#quickstart). The stack's own settings are in
 its compose files and `.env.example`. What changes for Kura:
 
 - **The port:** the stack publishes Kura on `127.0.0.1:8083` (`KURA_PORT`), not 8080.
 - **The vault** comes from the stack's `VAULT_REPO_URL` (Kura clones it) or, with the shared copy, from a read-only
   checkout at `/vault` (`KURA_REPO_DIR=/vault`, no `KURA_REPO_URL`). `VAULT_SUBDIR` (`KURA_REPO_SUBDIR`) names the notes
   folder.
-- **The other rooms:** `MACHIYA_ROOMS` (the Rooms switcher in the header), `KURA_NIWA_URL` and `KURA_KONBINI_URL`
+- **The other apps:** `MACHIYA_ROOMS` (the Rooms switcher in the header), `KURA_NIWA_URL` and `KURA_KONBINI_URL`
   ("View in Niwa" and "View Card in Konbini"), and `KURA_HISTER_URL` (push every note into Hister; once Hister has
   sign-in on, also `KURA_HISTER_TOKEN_FILE`, the owner's Hister token, which the reference compose doesn't pass yet).
 - **Who may read it:** the stack's compose sets `KURA_AUTH=open`, safe only because every published port binds
   `127.0.0.1`. [Who can use it](access.md) says how to let others in.
-- **One look across rooms:** with the rooms on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and
+- **One look across apps:** with the apps on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and
   text size between them.
 - **Links:** `KURA_PUBLIC_URL` (the base of every note's URL), `MACHIYA_SOURCE_URL` (a source-code link in the footer)
-  and `KURA_SHIORI_LINKS=1` ("Save links in Shiori").
+  and `KURA_SHIORI_LINKS=1` ("Save Links in Shiori").
 
 ## Testing these steps
 
 `tools/quickstart-test` runs every block on this page and in the README's Quickstart from a fresh clone and checks the
-output shown, so the docs can't drift. `--dry-run` lists the steps; `--ssh HOST` runs them on a clean BSD or Debian
+output shown. `--dry-run` lists the steps; `--ssh HOST` runs them on a clean BSD or Debian
 machine.
