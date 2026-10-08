@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.11.1
+
+- Takes vaultkit 0.27.3: an unselected pill (the search scope, a tag's nested tags) lifts onto a raised shade with a small shadow under the pointer, in a colour that stays readable; the folder tree and the dense note lists are `.rows`, which fill lightly with Kura's orange under the pointer (never on the open folder or the note in the preview); the sidebar's "Folders" heading is teal, as in every Machiya app.
+
 ## 0.11.0
 
 - Faster. Text answers of 1 KB or more are gzipped for a browser that accepts it (a tag page of 3,000 notes went from 607 KB to 86 KB, Machiya's stylesheet from 68 KB to 16 KB, Mermaid from 5.5 MB to 1.6 MB), and a note's rendered HTML is kept in memory (up to 24 MB) while the vault is unchanged, so a large note opens in about 2 ms instead of 65 to 110 ms, and a `/api/note` call no longer renders it twice. A sync that changes the vault drops what it kept for the notes that changed. Nothing is cached on disk.
