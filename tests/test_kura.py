@@ -1918,6 +1918,9 @@ class MirrorModeTest(unittest.TestCase):
         self.assertEqual(st.index.count, 2)
         self.assertEqual(sorted(site.notes), ["Home.md", "Projects/Idea.md"])
         self.assertEqual(sorted(site.changed_at), ["Home.md", "Projects/Idea.md"])       # the git log covers the root
+        self.assertEqual(site.changed_at, kura.changed_times(site.checkout.git.run, [""])[""])   # vaultkit's walk gives the same seconds
+        self.assertFalse(kura.nested(["notes"]) or kura.nested(["a", "b"]) or kura.nested(["a/x", "a/y"]))
+        self.assertTrue(kura.nested(["", "v"]) and kura.nested(["a", "a/b"]) and not kura.nested(["ab", "a"]))
         total, rows, _ = st.index.search("bamboo", vaults=["notes"])
         self.assertEqual((total, sorted(r[1] for r in rows)), (2, ["Home.md", "Projects/Idea.md"]))
 

@@ -241,6 +241,11 @@ STALE = 600                                   # seconds without a good sync befo
 MAX_LIMIT = 100
 
 
+def nested(subdirs):
+    """Whether one of these vault subdirectories ("" is the whole repository) contains another."""
+    return any(a != b and (not a or b.startswith(a + "/")) for a in subdirs for b in subdirs)
+
+
 def changed_times(run, subdirs):
     """{subdir: {rel: unix time of the note's latest commit}}: the exact time for the API (vault.tended has only the
     day). One `git log` for every vault of a checkout; a file counts for the longest matching subdir. NUL-separated
@@ -347,9 +352,13 @@ class State:
                 started = time.monotonic()
                 site.revision = head
                 site.index()
-                if (id(src), head) not in times:
-                    times[(id(src), head)] = changed_times(src.git.run, [x.subdir for x in self.sites if x.checkout is src])
-                site.changed_at = times[(id(src), head)].get(site.subdir, {})
+                group = [x.subdir for x in self.sites if x.checkout is src]
+                if nested(group):               # a file belongs to the longest subdir: only changed_times knows which
+                    if (id(src), head) not in times:
+                        times[(id(src), head)] = changed_times(src.git.run, group)
+                    site.changed_at = times[(id(src), head)].get(site.subdir, {})
+                else:                           # vaultkit's one history walk already holds each note's commit time (0.28)
+                    site.changed_at = site.tended_at
                 self.index.rebuild(site.name, site, pages.visible(site))
                 print("kura: indexed %d notes of %s at %s in %.1fs" % (
                     self.index.counts[site.name], site.name, head[:10], time.monotonic() - started), flush=True)
