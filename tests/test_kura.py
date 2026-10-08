@@ -708,6 +708,24 @@ class ImageTest(unittest.TestCase):
         self.assertLess(text.index("chown 1000:1000 /data"), text.index("USER 1000:1000"))
         self.assertLess(text.index("python3 -m vaultkit.verify"), text.index("USER 1000:1000"))   # build steps stay root
 
+    def test_the_base_image_and_every_workflow_action_are_pinned(self):
+        """Supply chain: the Dockerfile's FROM names a digest (tools/pin-bases), and each `uses:` in a workflow is a full commit SHA."""
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with open(os.path.join(here, "app", "Dockerfile")) as f:
+            froms = [x.split()[1] for x in f if x.startswith("FROM ")]
+        self.assertTrue(froms)
+        for ref in froms:
+            self.assertRegex(ref, r"@sha256:[0-9a-f]{64}$", ref)
+        workflows = os.path.join(here, ".github", "workflows")
+        names = [n for n in os.listdir(workflows) if n.endswith((".yml", ".yaml"))]
+        self.assertIn("images.yml", names)
+        for name in names:
+            with open(os.path.join(workflows, name)) as f:
+                uses = re.findall(r"^\s*-?\s*uses:\s*(\S+)", f.read(), re.M)
+            self.assertTrue(uses, name)
+            for ref in uses:
+                self.assertRegex(ref, r"@[0-9a-f]{40}$", (name, ref))
+
 
 class ContrastTest(unittest.TestCase):
     """Rule 4 of Machiya's style guide: every text 4.5:1 in all ten themes, dark and light, on what it is drawn on. These are

@@ -52,7 +52,17 @@ $DOCKER run -d --init --name kura -p 127.0.0.1:8080:8080 \
 ```
 
 The three `GIT_CONFIG_*` settings tell git that the mounted vault, owned by your user, is safe to read. `--init` makes
-`stop` quick. Wait until Kura has read the vault, then check it:
+`stop` quick. Instead of building, you can run the published image: skip the `build` line and name
+`ghcr.io/machiya-kobo/kura:latest` (or a version, `ghcr.io/machiya-kobo/kura:0.11.3`) where the last line says `kura`.
+Each image is signed with cosign (keyless); check one with:
+
+```sh
+cosign verify ghcr.io/machiya-kobo/kura:latest \
+  --certificate-identity-regexp '^https://github.com/machiya-kobo/kura/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Wait until Kura has read the vault, then check it:
 
 <!-- quickstart: container:check -->
 ```bash

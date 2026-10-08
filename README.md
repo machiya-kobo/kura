@@ -80,7 +80,7 @@ Ctrl-C stops it.
 ### Next
 
 - **Read your own vault:** point `KURA_REPO_DIR` at its checkout, `KURA_DB` at a file of your own, and `KURA_REPO_SUBDIR` at the notes folder if it isn't the top ([more](docs/install.md#your-own-vault)).
-- **Run it in a container or on the BSDs:** [the install guide](docs/install.md#in-a-container).
+- **Run it in a container or on the BSDs:** [the install guide](docs/install.md#in-a-container), with a published image at `ghcr.io/machiya-kobo/kura`.
 - **Let other people in, or sign in:** [who can use it](docs/access.md).
 - **Run it with the other Machiya apps:** [the stack](docs/install.md#as-part-of-the-machiya-stack).
 - **Every setting:** [settings](docs/settings.md).
