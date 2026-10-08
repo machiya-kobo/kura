@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.9.8
+
+- `KURA_AUTH_FALLBACK=tailscale` now works with `KURA_AUTH=hister`, like Niwa and Konbini: only while the sign-in helper or Hister can't answer, a Tailscale login listed in `KURA_USERS` gets in, with a banner. The default is still `none`.
+- Code in notes and the search field are easier to read in the light themes (vaultkit 0.25.2).
+
 ## 0.9.7
 
 - Links and accent text on raised panels (Settings, the Rooms and vault menus, the open folder) are readable in every theme (vaultkit 0.25.0).
