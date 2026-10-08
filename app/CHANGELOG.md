@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.10.1
+
+- Shiori's look, as the Machiya style guide draws it (vaultkit 0.26.2): the vault switch and the search scope ("Personal" · "All Vaults") are filter pills, the current one filled; a tag page's nested tags are pills too, "All" first (a long list stays an index of tags in a fold). "View in Niwa", "View Card in Konbini", "Save Links in Shiori" and "Edit in Obsidian" are outlined link chips in their room's colour; state chips (vault, Published) are outlined, with no fill.
+- The browser tab shows Kura's small icon (two shelves of bold spines), which still reads at 16 px, and `/favicon.ico` serves the 16, 32 and 48 px icon made from it. The home-screen and manifest icons are unchanged.
+
 ## 0.10.0
 
 - New `KURA_TRUSTED_PROXIES` (peer addresses, like `10.210.4.2/32`): identity headers (`Tailscale-User-Login` and the other `Tailscale-*` headers, `Remote-User`, `KURA_AUTH_HEADER`) count only from those peers; any other peer is anonymous. Unset, every peer's headers count, as before.
