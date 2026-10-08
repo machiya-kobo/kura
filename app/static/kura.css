@@ -56,7 +56,7 @@ ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(-
 .kpreview, .kside .kfn small { display: none; }
 .kside { order: 0; } .klist { order: 1; } .kpreview { order: 2; }
 .kgrid:not(.khome) .kside { display: none; }          /* phones: the tree only on the home page */
-.kside .sechead { margin-top: var(--sp-3); }
+.kside .sidehead { margin-top: var(--sp-3); }
 .ktitle { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
 .tagcloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--sp-3); }
 .tagcloud a.tag { font-size: var(--fs-s); padding: 2px 9px; }
@@ -68,7 +68,7 @@ ul.kfolds, ul.kns { list-style: none; margin: 0 0 var(--sp-2); padding: 0; }
 ul.kfolds ul.kfolds { margin: 0; }
 .kfold { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px calc(8px + var(--d, 0) * 16px);
   border-radius: 8px; color: var(--fg); }
-.kfold:hover { background: var(--hl); text-decoration: none; }
+a.kfold, a.kn:hover { text-decoration: none; }           /* the hover fill is .rows' (machiya.css) */
 .kfold.here { background: var(--hl); }
 .kfold.here b, .kfold.along b { color: var(--room); }
 .kfold.here b { color: var(--room-panel, var(--room)); }      /* on --hl, a raised row: the panel shade (docs/ui.md) */
@@ -81,7 +81,6 @@ ul.kfolds ul.kfolds { margin: 0; }
 .ksubs { margin: 0 0 10px; }
 .khome .kside .kfn small { display: block; }
 .kn { display: block; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; color: var(--fg); }
-.kn:hover { background: var(--hl); text-decoration: none; }
 .kn b { display: block; font-weight: 600; }
 .kn .kmeta { display: block; margin-top: 1px; }
 .kn small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
@@ -114,7 +113,7 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
   .kgrid:not(.khome) .kside { display: block; }
   .kside { position: sticky; top: 64px; align-self: start; max-height: calc(100dvh - 80px); overflow-y: auto;
     padding-right: 8px; border-right: 1px solid var(--line); }
-  .kside .sechead { margin-top: 0; }
+  .kside .sidehead { margin-top: 0; }
   .ksubs { display: none; }                          /* the tree already shows them */
   .kgrid .kside .kfn small, .khome .kside .kfn small { display: none; }
 }

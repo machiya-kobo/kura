@@ -222,12 +222,12 @@ class NoteApiTest(unittest.TestCase):
         for path in ("/recent", "/search?q=tea", "/search?q=zebrafish&vaults=all"):
             _, body = get(path)
             self.assertIn('<ul class="cards">', body, path)
-            self.assertNotIn('<ul class="kns">', body, path)
+            self.assertNotIn('<ul class="kns rows">', body, path)
             self.assertRegex(body, r'<li class="card"><a class="kn[ "][^>]*href="/(?:v/work/)?n/[^"]+"><span class="title">', path)
             self.assertIn('class="snippet"', body, path)
         for path in ("/", "/f/Notes", "/t/topic", "/v/work/f/Runbooks"):
             body = fetch(path)[2]
-            self.assertIn('<ul class="kns">', body, path)
+            self.assertIn('<ul class="kns rows">', body, path)
             self.assertNotIn('class="card"', body, path)
         _, body = get("/recent")
         self.assertEqual(body.count('class="kn sel"'), 1)                     # the note in the preview pane
@@ -237,6 +237,18 @@ class NoteApiTest(unittest.TestCase):
         self.assertIn('<li class="khd">Full Text', body)
         css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kura.css")).read()
         self.assertNotIn("text-transform: uppercase", css)                    # headings are drawn as written (style guide, v0.27)
+
+    def test_the_sidebar_is_rows_under_a_teal_heading(self):
+        # vaultkit 0.27.2: the folder tree and the dense note columns are .rows (the shared hover fill), and the sidebar's
+        # heading is .sidehead (teal in every app), not a .sechead
+        for path in ("/", "/f/Notes", "/t/topic", "/recent", "/search?q=tea", "/v/work/"):
+            body = get(path)[1] if not path.startswith("/v/") else fetch(path)[2]
+            self.assertIn('<h3 class="sidehead">Folders</h3>', body, path)
+            self.assertNotIn('<h3 class="sechead">Folders', body, path)
+            self.assertIn('<ul class="kfolds rows">', body, path)
+        css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kura.css")).read()
+        self.assertNotIn(".kfold:hover", css)                                  # one hover for every selectable row
+        self.assertNotIn(".kn:hover { background", css)
 
     def test_recent_tags_folders(self):
         _, d = getj("/api/recent?limit=2")
@@ -708,13 +720,14 @@ class ContrastTest(unittest.TestCase):
             for mode in ("dark", "light"):
                 t = palettes.tokens(key, mode)
                 # orange: the room's pill and the Kura links; yellow: a work vault's pill and chip; muted: a vault's chip; the
-                # rest are the link chips to the rooms (green Niwa, magenta Konbini, blue the house) and Obsidian's fg2
-                for name in ("orange", "yellow", "muted", "green", "magenta", "blue", "fg2"):
+                # rest are the link chips to the rooms (green Niwa, magenta Konbini, blue the house), Obsidian's fg2 and the sidebar heading's teal
+                for name in ("orange", "yellow", "muted", "green", "magenta", "blue", "fg2", "teal"):
                     c = t[name]
                     where = (key, mode, name)
                     self.assertGreaterEqual(palettes.contrast(c, t["bg"]), self.NEED, ("outlined", where))
                 for name in ("orange", "yellow"):
                     self.assertGreaterEqual(palettes.contrast(t["bg"], t[name]), self.NEED, ("current pill", key, mode, name))
+                    self.assertGreaterEqual(palettes.contrast(t[name + "-panel"], t["hl"]), self.NEED, ("hovered pill", key, mode, name))   # v0.27.3: lifted onto --hl
 
     def test_search_and_recent_cards_are_readable_in_every_theme(self):
         # a result card is a raised panel: its title (the room's colour) and the vault chip take their panel shades, the

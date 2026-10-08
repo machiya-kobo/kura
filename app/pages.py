@@ -110,7 +110,7 @@ def tree(g, notes, prefix, open_path, depth=0):
             if sub:
                 rows.append(sub)
         rows.append("</li>")
-    return '<ul class="kfolds">%s</ul>' % "".join(rows) if rows else ""
+    return '<ul class="kfolds rows">%s</ul>' % "".join(rows) if rows else ""
 
 
 def note_row(g, n, sel=None, show_folder=True, snippet=None, chip=None, card=False):
@@ -273,10 +273,10 @@ def columns(ctx, g, title, current, open_path, head, rows, listed, sel, extra=""
         n = pick(g, listed, sel) if pane else None
     items = "".join(rows(n))
     cls = "kgrid notes%s%s" % (" khome" if open_path is None and current == "kura" else "", "" if pane else " kwide")
-    body = ('<main class="%s">%s<nav class="kside" aria-label="Folders"><h3 class="sechead">Folders</h3>%s</nav>'
+    body = ('<main class="%s">%s<nav class="kside" aria-label="Folders"><h3 class="sidehead">Folders</h3>%s</nav>'
             '<section class="klist">%s%s%s</section>%s</main>'
             % (cls, ('<div class="live-main" data-class="%s" hidden></div>' % cls) if searching else "",
-               tree(g, visible(g), "", open_path), head, ('<ul class="%s">%s</ul>' % ("cards" if cards else "kns", items)) if items else "", extra,
+               tree(g, visible(g), "", open_path), head, ('<ul class="%s">%s</ul>' % ("cards" if cards else "kns rows", items)) if items else "", extra,
                ('<aside class="kpreview" aria-label="Preview">%s</aside>' % preview(pg, n)) if pane else ""))
     q, everywhere, focus = searching or ("", False, False)
     return npage(ctx, g, title, top(ctx, g, current, q=q, everywhere=everywhere, focus=focus) + body, current)
@@ -304,7 +304,7 @@ def folder(ctx, g, path, sel=""):
     title = path.split("/")[-1].replace("-", " ") if path else "Loose notes"
     head = ('<p class="crumbs">%s</p><h2 class="ktitle">%s <span class="kcount">%d</span></h2>%s'
             % (crumbs(g, prefix + "x"), e(title), len(notes),
-               ('<ul class="kfolds ksubs">%s</ul>' % subs) if subs else ""))
+               ('<ul class="kfolds ksubs rows">%s</ul>' % subs) if subs else ""))
     return columns(ctx, g, title, "", path, head,
                    lambda n: (note_row(g, x, n, False) for x in direct), direct, sel)
 
