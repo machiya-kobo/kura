@@ -3,7 +3,7 @@ Third-party software shipped with Kura
 
 Kura is licensed under the GNU Affero General Public License, version 3 or
 (at your option) any later version (see LICENSE). It ships or uses the
-following third-party software, each under its own licence.
+following third-party software, each under its own license.
 
 --------------------------------------------------------------------------------
 Mermaid 12.0.0 (app/static/mermaid.min.js)
@@ -34,7 +34,7 @@ SOFTWARE.
 
 The Mermaid bundle also contains other libraries (among them DOMPurify under
 Apache-2.0 OR MPL-2.0, lodash-es and cytoscape under MIT, and d3 under ISC).
-Their licence notices are kept in the bundle's "Bundled license information"
+Their license notices are kept in the bundle's "Bundled license information"
 comment in app/static/mermaid.min.js.
 
 --------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ Debian packages and the Python base image (container image)
 
 The Docker image is built on the official python image and installs git,
 openssh-client and ca-certificates from Debian. They are unmodified, run as
-separate programs, and keep their own licences (see /usr/share/doc/*/copyright
+separate programs, and keep their own licenses (see /usr/share/doc/*/copyright
 in the image).
 
 --------------------------------------------------------------------------------
@@ -113,4 +113,4 @@ vaultkit (app/vaultkit/)
 --------------------------------------------------------------------------------
 
 vaultkit, the shared vault core and page shell of Machiya, is vendored from the
-Machiya repository and is under the same licence as Kura (AGPL-3.0-or-later).
+Machiya repository and is under the same license as Kura (AGPL-3.0-or-later).

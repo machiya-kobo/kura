@@ -263,7 +263,7 @@ Fixes from the October security sweep.
 
 - A test suite guards the rule that a client that never sends `vault` sees the default vault only: queries, filters, URL
   shapes and the owner gate.
-- AGPL-3.0-or-later licence files and third-party notices, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, and an
+- AGPL-3.0-or-later license files and third-party notices, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, and an
   install section in the README.
 
 ## 0.3.0
