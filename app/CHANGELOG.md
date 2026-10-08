@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.11.0
+
+- Faster. Text answers of 1 KB or more are gzipped for a browser that accepts it (a tag page of 3,000 notes went from 607 KB to 86 KB, Machiya's stylesheet from 68 KB to 16 KB, Mermaid from 5.5 MB to 1.6 MB), and a note's rendered HTML is kept in memory (up to 24 MB) while the vault is unchanged, so a large note opens in about 2 ms instead of 65 to 110 ms, and a `/api/note` call no longer renders it twice. A sync that changes the vault drops what it kept for the notes that changed. Nothing is cached on disk.
+- Shiori's look, round 2 (vaultkit 0.27.1): search results and the Recent page are Shiori's result cards (a step above the page, the title in Kura orange, the vault as a chip, the note in the preview pane outlined); Home, folders and tags stay dense rows. The header's current page is a raised pill with no underline, and section headings (Folders, Recently Changed, Titles, Full Text, Linked From) are written in Title Case and drawn as written.
+
 ## 0.10.2
 
 - The container no longer runs as root: the image sets `USER 1000:1000` and owns `/data`, so outside the reference compose it is the same uid the install page already asked for. A new volume takes `/data`'s owner from the image; a volume Kura wrote as root earlier needs `chown -R 1000:1000` once.
