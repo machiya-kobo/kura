@@ -40,7 +40,7 @@ from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.9.8"
+VERSION = "0.10.0"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANGELOG = os.path.join(APP_DIR, "CHANGELOG.md")      # GET /api/changelog; inside app/, so the image's COPY carries it
 PORT = int(os.environ.get("KURA_PORT", "8080"))
@@ -95,13 +95,65 @@ def public_url(value):
 
 
 PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
-if AUTH == "tailscale" and not os.environ.get("MACHIYA_IDENTITY_FILE", "").strip():     # the KURA_USERS gate trusts the header
+
+
+def trusted_proxies(value):
+    """KURA_TRUSTED_PROXIES: the peer addresses (CIDRs or single addresses, comma-separated) whose identity headers
+    count. () when unset; anything that isn't an address or network refuses to start."""
+    out = []
+    for part in (value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            raise SystemExit("kura: KURA_TRUSTED_PROXIES: %r is not an address or network (like 10.210.4.2/32)" % part)
+    return tuple(out)
+
+
+def peer_trusted(address, proxies):
+    """Whether a peer (the connection's address) is one of the trusted proxies; True when none are set."""
+    if not proxies:
+        return True
     try:
-        identity.check_bind("tailscale", BIND, os.environ.get("KURA_BIND_BEHIND_PROXY", "").strip().lower() in ("1", "true", "yes", "on"))
-    except identity.IdentityError as err:
-        raise SystemExit("kura: %s" % str(err).replace("<ROOM>_BIND_BEHIND_PROXY", "KURA_BIND_BEHIND_PROXY"))
+        ip = ipaddress.ip_address((address or "").split("%")[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return any(ip.version == net.version and ip in net for net in proxies)
+
+
+def need_trusted_proxies(what, bind, proxies):
+    """A mode that believes Tailscale's login header (`what`) on a non-loopback bind must name the proxy: on a shared
+    container network any other container could send the header, and KURA_BIND_BEHIND_PROXY can't tell it from the
+    proxy. Refuses to start without KURA_TRUSTED_PROXIES there."""
+    if not proxies and not identity.is_loopback(bind):
+        raise SystemExit("kura: %s trusts Tailscale's login header, so on %r it needs KURA_TRUSTED_PROXIES, the proxy's "
+                         "address (like 10.210.4.2/32): KURA_BIND_BEHIND_PROXY can't tell the proxy from another "
+                         "container on the same network. Or listen on 127.0.0.1 behind the proxy" % (what, bind))
+
+
+def proxied(env):
+    """env with KURA_BIND_BEHIND_PROXY on when KURA_TRUSTED_PROXIES names the proxy: a peer that isn't listed loses its
+    identity headers, which is what the bind check asks for."""
+    env = dict(env)
+    if trusted_proxies(env.get("KURA_TRUSTED_PROXIES")):
+        env["KURA_BIND_BEHIND_PROXY"] = "1"
+    return env
+
+
+# KURA_TRUSTED_PROXIES: when set, an identity header (Tailscale's, KURA_AUTH_HEADER's, Remote-User) counts only on a
+# connection from one of these addresses; from any other peer it is dropped before anything reads it, so the request is
+# anonymous and meets the gate. Unset: every peer's headers count, as before (the bind decides).
+TRUSTED_PROXIES = trusted_proxies(os.environ.get("KURA_TRUSTED_PROXIES"))
+IDENTITY_HEADERS = tuple(dict.fromkeys(h for h in (
+    "Tailscale-User-Login", "Tailscale-User-Name", "Tailscale-User-Profile-Pic", "Tailscale-App-Capabilities",
+    "Remote-User", os.environ.get("KURA_AUTH_HEADER", "").strip()) if h))
+if AUTH == "tailscale":                                             # the KURA_USERS gate, or the identity file's Tailscale login
+    need_trusted_proxies("KURA_AUTH=tailscale", BIND, TRUSTED_PROXIES)
 try:        # Machiya's identity file (MACHIYA_IDENTITY_FILE); None without one: the KURA_USERS gate, as before
-    IDENTITY = identity.load_for("kura", os.environ, bind=BIND, secure=not PUBLIC_URL.startswith("http://"))
+    IDENTITY = identity.load_for("kura", proxied(os.environ), bind=BIND, secure=not PUBLIC_URL.startswith("http://"))
 except identity.IdentityError as err:
     raise SystemExit("kura: identity: %s" % err)
 
@@ -110,14 +162,16 @@ def hister_auth(env, bind, secure):
     """KURA_AUTH=hister: the sign-in helper's check (vaultkit.histerauth), else None. KURA_AUTH_FALLBACK is "none" (the
     default: with the helper or Hister unavailable every page and call is a 503, no grace period) or "tailscale" (then
     a Tailscale-User-Login listed in KURA_USERS is admitted as the owner, with a banner, and only while nobody
-    answers: a signed-out visitor still goes to the sign-in). KURA_PUBLIC_URL, KURA_AUTH_URL, KURA_AUTH_SIGNIN_URL
-    and KURA_HISTER_USERS are required (histerauth.load_for refuses to start without them)."""
+    answers: a signed-out visitor still goes to the sign-in); on a non-loopback bind it needs KURA_TRUSTED_PROXIES.
+    KURA_PUBLIC_URL, KURA_AUTH_URL, KURA_AUTH_SIGNIN_URL and KURA_HISTER_USERS are required (histerauth.load_for refuses to start without them)."""
     if AUTH != "hister":
         return None
-    env = dict(env)
+    env = proxied(env)
     env["KURA_AUTH_FALLBACK"] = (env.get("KURA_AUTH_FALLBACK") or "none").strip().lower()
     if env["KURA_AUTH_FALLBACK"] not in ("none", "tailscale"):
         raise SystemExit("kura: KURA_AUTH_FALLBACK must be none or tailscale, not %r" % env["KURA_AUTH_FALLBACK"])
+    if env["KURA_AUTH_FALLBACK"] == "tailscale":
+        need_trusted_proxies("KURA_AUTH_FALLBACK=tailscale", bind, trusted_proxies(env.get("KURA_TRUSTED_PROXIES")))
     try:
         return histerauth.load_for("kura", env, bind=bind, secure=secure)
     except identity.IdentityError as err:
@@ -361,6 +415,14 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     timeout = 30                    # seconds a client may stay silent: one that never sends doesn't hold a thread for good
     server_version = "kura/" + VERSION
+
+    def parse_request(self):
+        """After the headers are read: an untrusted peer's identity headers go (KURA_TRUSTED_PROXIES)."""
+        ok = super().parse_request()
+        if ok and not peer_trusted(self.client_address[0] if self.client_address else "", TRUSTED_PROXIES):
+            for name in IDENTITY_HEADERS:
+                del self.headers[name]
+        return ok
 
     def log_message(self, fmt, *args):
         """One log line: who and the request without its query (a private vault's search terms stay out of the log).
@@ -994,6 +1056,8 @@ def main():
         ("to %s%s" % (HISTER_URL, " with a token" if HISTER_TOKEN_FILE else "")) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
         (", settings from %s" % ENV_FILE) if ENV_FILE else ""), flush=True)
     print("kura: listening on %s:%d" % (BIND, PORT), flush=True)
+    if TRUSTED_PROXIES:
+        print("kura: identity headers only from %s" % ", ".join(str(n) for n in TRUSTED_PROXIES), flush=True)
     if AUTH == "open":
         print("kura: WARNING: KURA_AUTH=open: no identity check. Anyone who can reach %s:%d can read every note. "
               "Use it only on localhost or a trusted LAN." % (BIND, PORT), flush=True)

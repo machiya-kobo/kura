@@ -12,7 +12,9 @@ Kura answers only to an IP address, `localhost`, `KURA_PUBLIC_URL`'s name and `K
 
 Listen on `127.0.0.1`, put `tailscale serve` in front, and list their Tailscale logins in `KURA_USERS`
 (`KURA_AUTH=tailscale`, the default; `*` = anyone, unset = nobody). Kura trusts the `Tailscale-User-Login` header that
-Serve sets, so block the port from outside: nothing may reach Kura around Serve.
+Serve sets, so nothing may reach Kura around Serve. On a non-loopback address, which a container needs, name the
+proxy's address in `KURA_TRUSTED_PROXIES` (like `10.210.4.2/32`): the header then counts only from there, and Kura
+refuses to start without it.
 
 ## People, agents, sign-in and Shiori devices
 
@@ -27,7 +29,7 @@ From the Quickstart's venv, that's `cd app && ../.venv/bin/python -m vaultkit.id
 [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
 
 Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEADER`, `KURA_BIND_BEHIND_PROXY`,
-`KURA_ACCEPT_APP_CAPS` and `KURA_PUBLIC_URL`.
+`KURA_ACCEPT_APP_CAPS`, `KURA_TRUSTED_PROXIES` and `KURA_PUBLIC_URL`.
 
 ## Hister's users as the sign-in
 

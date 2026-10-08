@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -471,10 +472,60 @@ class AuthTest(unittest.TestCase):
         self.assertIn("KURA_BIND_BEHIND_PROXY", r.stderr)
         self.assertNotIn("<ROOM>", r.stderr)
         r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "0.0.0.0", "KURA_BIND_BEHIND_PROXY": "1"})
+        self.assertNotEqual(r.returncode, 0)                                  # the flag alone can't tell the proxy from a neighbor
+        self.assertIn("KURA_TRUSTED_PROXIES", r.stderr)
+        r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "0.0.0.0", "KURA_TRUSTED_PROXIES": "10.210.4.2/32"})
         self.assertEqual((r.returncode, r.stdout.split()[:2]), (0, ["tailscale", "0.0.0.0"]), r.stderr)
         r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "127.0.0.1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self.run_kura({"KURA_AUTH": "open"})                              # open mode has its own Host allow-list
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_trusted_proxies_parse_and_match(self):
+        self.assertEqual(kura.trusted_proxies(None), ())
+        self.assertEqual(kura.trusted_proxies(" , "), ())
+        nets = kura.trusted_proxies("10.210.4.2/32, 10.220.0.0/24,fd00::1")
+        self.assertEqual(len(nets), 3)
+        for bad in ("nonsense", "10.210.4.2/33", "10.210.4.2 10.210.4.3", "*"):
+            with self.assertRaises(SystemExit, msg=bad):
+                kura.trusted_proxies(bad)
+        self.assertTrue(kura.peer_trusted("10.210.4.2", nets))
+        self.assertTrue(kura.peer_trusted("10.220.0.77", nets))
+        self.assertTrue(kura.peer_trusted("::ffff:10.210.4.2", nets))            # an IPv4-mapped peer
+        self.assertTrue(kura.peer_trusted("fd00::1", nets))
+        self.assertFalse(kura.peer_trusted("10.210.4.3", nets))
+        self.assertFalse(kura.peer_trusted("", nets))
+        self.assertFalse(kura.peer_trusted("not an address", nets))
+        self.assertTrue(kura.peer_trusted("203.0.113.9", ()))                    # unset: everyone, as before
+        self.assertEqual(kura.TRUSTED_PROXIES, ())                              # the suite runs without it
+
+    def test_the_tailscale_gate_ignores_the_login_of_an_untrusted_peer(self):
+        self.assertEqual(get("/api/recent")[0], 200)                                   # unset: every peer's login counts
+        with mock.patch.object(kura, "TRUSTED_PROXIES", kura.trusted_proxies("10.210.4.2/32")):
+            self.assertEqual(get("/api/recent")[0], 403)                               # we are 127.0.0.1: anonymous
+            self.assertEqual(get("/api/status", user=None)[0], 200)
+        with mock.patch.object(kura, "TRUSTED_PROXIES", kura.trusted_proxies("127.0.0.1")):
+            self.assertEqual(get("/api/recent")[0], 200)
+
+    def test_trusted_proxies_are_needed_for_a_header_mode_on_a_non_loopback_bind(self):
+        base = {"KURA_USERS": "owner@test", "KURA_BIND": "0.0.0.0"}
+        r = self.run_kura(dict(base, KURA_TRUSTED_PROXIES="not-an-address"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("KURA_TRUSTED_PROXIES", r.stderr)
+        r = self.run_kura(dict(base, KURA_TRUSTED_PROXIES="10.210.4.2/32"), "import kura; print(len(kura.TRUSTED_PROXIES))")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "1"), r.stderr)
+        r = self.run_kura({"KURA_USERS": "owner@test", "KURA_BIND": "127.0.0.1"})        # loopback needs none
+        self.assertEqual(r.returncode, 0, r.stderr)
+        hister = {"KURA_AUTH": "hister", "KURA_AUTH_URL": "http://helper:8081", "KURA_HISTER_USERS": "owner",
+                  "KURA_AUTH_SIGNIN_URL": "https://hister.test/machiya/signin", "KURA_PUBLIC_URL": "https://kura.test",
+                  "KURA_BIND": "0.0.0.0"}
+        r = self.run_kura(hister)                                                         # fallback none: the header is never read
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_kura(dict(hister, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test", KURA_BIND_BEHIND_PROXY="1"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("KURA_TRUSTED_PROXIES", r.stderr)
+        r = self.run_kura(dict(hister, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test",
+                               KURA_TRUSTED_PROXIES="10.210.4.2/32"))
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_defaults_name_no_owner(self):
@@ -1451,10 +1502,11 @@ class HisterModeTest(unittest.TestCase):
             kura.hister_auth(dict(env, KURA_AUTH_ACCEPT_ORIGINS="https://x.test/path"), "0.0.0.0", True)
         auth = kura.hister_auth(dict(env, KURA_AUTH_FALLBACK=" Tailscale ", KURA_USERS="owner@test"), "127.0.0.1", True)
         self.assertEqual((auth.fallback, sorted(auth.fallback_users)), ("tailscale", ["owner@test"]))   # now allowed
-        with self.assertRaises(SystemExit):                                                   # a non-loopback bind needs the proxy flag
-            kura.hister_auth(dict(env, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test"), "0.0.0.0", True)
+        for flags in ({}, {"KURA_BIND_BEHIND_PROXY": "1"}):                                   # a non-loopback bind names the proxy
+            with self.assertRaises(SystemExit, msg=flags):
+                kura.hister_auth(dict(env, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test", **flags), "0.0.0.0", True)
         auth = kura.hister_auth(dict(env, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test",
-                                     KURA_BIND_BEHIND_PROXY="1"), "0.0.0.0", True)
+                                     KURA_TRUSTED_PROXIES="10.210.4.2/32"), "0.0.0.0", True)
         self.assertEqual(auth.fallback, "tailscale")
         for bad in ({"KURA_AUTH_FALLBACK": "grace"}, {"KURA_USERS": "*", "KURA_AUTH_FALLBACK": "tailscale"},
                     {"KURA_PUBLIC_URL": ""}, {"KURA_HISTER_USERS": ""},
@@ -1513,6 +1565,22 @@ class HisterFallbackTest(HisterModeTest):
         status, _, body = self.call("/", headers=self.cookie())
         self.assertEqual(status, 200)
         self.assertNotIn("machiya-banner", body)
+
+    def test_an_untrusted_peers_login_is_dropped_and_a_trusted_peers_counts(self):
+        """KURA_TRUSTED_PROXIES: the test client is 127.0.0.1. Listed, its Tailscale login counts; another address is
+        listed, it is anonymous, however the login reads."""
+        self.helper.down = True
+        with mock.patch.object(kura, "TRUSTED_PROXIES", kura.trusted_proxies("10.210.4.2/32")):
+            status, _, body = self.call("/")
+            self.assertEqual(status, 503)                                  # nobody identified: the header was dropped
+            self.assertNotIn("Zebrafish", body)
+            self.assertEqual(self.call("/api/search?q=tea")[0], 503)
+        with mock.patch.object(kura, "TRUSTED_PROXIES", kura.trusted_proxies("127.0.0.0/8")):
+            status, _, body = self.call("/")
+            self.assertEqual(status, 200)
+            self.assertIn("machiya-banner", body)
+        with mock.patch.object(kura, "TRUSTED_PROXIES", kura.trusted_proxies("10.210.4.2/32")):
+            self.assertEqual(self.call("/api/status", tailscale=False)[0], 200)   # status and the others stay open
 
     def test_the_fallback_is_off_in_the_none_room_and_status_stays_open(self):
         kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
@@ -2347,7 +2415,7 @@ class IdentityTest(unittest.TestCase):
         self.assertEqual(kura.auth_mode("header", "/etc/machiya/identity.toml"), "header")
 
     def test_identity_settings_at_start(self):
-        """With an identity file a header mode refuses a public bind unless a proxy is the only way in."""
+        """With an identity file a Tailscale header mode refuses a public bind unless KURA_TRUSTED_PROXIES names the proxy."""
         folder = os.path.join(TMP, "identity-start")
         write_identity(folder)
         code = "import kura; print(kura.IDENTITY.auth, kura.IDENTITY.room)"
@@ -2358,7 +2426,10 @@ class IdentityTest(unittest.TestCase):
         r = AuthTest.run_kura(self, dict(env, KURA_BIND="127.0.0.1"), code)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "tailscale kura"), r.stderr)
         r = AuthTest.run_kura(self, dict(env, KURA_BIND_BEHIND_PROXY="1"), code)
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotEqual(r.returncode, 0)                                  # the flag alone no longer opens a public bind
+        self.assertIn("KURA_TRUSTED_PROXIES", r.stderr)
+        r = AuthTest.run_kura(self, dict(env, KURA_TRUSTED_PROXIES="10.210.4.2/32"), code)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "tailscale kura"), r.stderr)
 
     def test_reserved_vault_names(self):
         for bad in ("a=/x, shared=/x", "a=/x, default:Default=/x", "a=/x, shared+shared=/x"):
