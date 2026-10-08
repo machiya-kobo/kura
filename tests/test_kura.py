@@ -87,6 +87,7 @@ import kura        # noqa: E402
 import search      # noqa: E402
 import sites       # noqa: E402
 import api         # noqa: E402
+import pages       # noqa: E402
 from vaultkit import palettes  # noqa: E402
 from vaultkit import histerauth  # noqa: E402
 from vaultkit import websafe  # noqa: E402
@@ -696,6 +697,46 @@ class SpeedTest(unittest.TestCase):
             api.RENDER_CACHE_BYTES = old
 
 
+class RemoteImagesTest(unittest.TestCase):
+    """vaultkit 0.29: on a page an image from another site waits for a click; the JSON API (Shiori renders that HTML without
+    machiya.js) and the Hister push keep loading it; a vault's own image is never held back."""
+
+    def note(self):
+        import copy
+        g = kura.state.default
+        n = copy.copy(g.notes["Notes/Tea brewing.md"])
+        n.text += "\n![A remote picture](https://img.example.com/a.png)\n\n![[pic.png]]\n"
+        return g, n
+
+    def test_a_page_holds_a_remote_image_until_it_is_clicked(self):
+        g, n = self.note()
+        body = pages.note_parts(g, n)[2]
+        self.assertIn('class="remote-img" data-src="https://img.example.com/a.png" data-alt="A remote picture"', body)
+        self.assertIn("Load image</button>", body)
+        self.assertNotRegex(body, r'<img[^>]*img\.example\.com')                    # nothing asked that site yet
+        self.assertIn('<img src="/a/pic.png"', body)                               # the vault's own image loads as before
+        self.assertNotIn("<script", body)
+
+    def test_the_json_api_and_the_cache_keep_the_default(self):
+        g, n = self.note()
+        loaded = api.render(g, n, "all")
+        self.assertRegex(loaded, r'<img[^>]*src="https://img\.example\.com/a\.png"')
+        self.assertNotIn("remote-img", loaded)
+        held = api.render(g, n, "all", remote_images="click")
+        self.assertIn("remote-img", held)
+        self.assertIs(api.render(g, n, "all"), loaded)                             # each way is kept apart
+        self.assertIs(api.render(g, n, "all", remote_images="click"), held)
+        _, _, body = fetch("/api/note?path=Notes/Tea%20brewing.md")
+        self.assertNotIn("remote-img", body)
+
+    def test_the_placeholder_is_a_page_for_every_note_view(self):
+        # the full page and the preview pane both go through note_parts, so both hold the image
+        import inspect
+        self.assertIn('remote_images="click"', inspect.getsource(pages.note_parts))
+        for call in re.findall(r"api\.render\(([^\n]*)\)", open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "kura.py")).read()):
+            self.assertNotIn("click", call)
+
+
 class ImageTest(unittest.TestCase):
     def test_the_image_does_not_run_as_root(self):
         """Outside the reference compose (which sets user:) the container must still be uid 1000, and /data, the one place
@@ -730,7 +771,7 @@ class ImageTest(unittest.TestCase):
 class ContrastTest(unittest.TestCase):
     """Rule 4 of Machiya's style guide: every text 4.5:1 in all ten themes, dark and light, on what it is drawn on. These are
     Kura's own pairings of the shared pills and chips: the outlined pill and link chip in their colour on the page, the
-    current pill's page-coloured text on its fill. (The shared hover tint, 14% of the colour over the page, is vaultkit's.)"""
+    current pill's page-coloured text on its fill, and the click-to-load image placeholder (fg2, muted and the house blue on the page). (The shared hover tint, 14% of the colour over the page, is vaultkit's.)"""
     NEED = 4.5
 
     def test_pills_and_link_chips_are_readable_in_every_theme(self):
@@ -1760,6 +1801,21 @@ class HisterFallbackTest(HisterModeTest):
         status, _, body = self.call("/settings")
         self.assertEqual(status, 200)
         self.assertIn('data-prefs-state="unavailable"', body)
+
+    def test_the_peer_address_reaches_vaultkits_own_proxy_check(self):          # v0.29: HISTER.resolve(client=…)
+        """With trusted proxies set on the sign-in check and a peer that isn't one of them (the test client is 127.0.0.1),
+        vaultkit itself refuses the Tailscale fallback, even though Kura's own header stripping is off here."""
+        self.helper.down = True
+        kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
+                                            fallback="tailscale", fallback_users=["owner@test"], fetch=self.helper,
+                                            trusted=kura.trusted_proxies("10.210.4.2/32"))
+        status, _, body = self.call("/")
+        self.assertNotEqual(status, 200)
+        self.assertNotIn("Recently Changed", body)
+        kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
+                                            fallback="tailscale", fallback_users=["owner@test"], fetch=self.helper,
+                                            trusted=kura.trusted_proxies("127.0.0.1"))
+        self.assertEqual(self.call("/")[0], 200)                                # the listed peer is believed
 
     def test_a_login_that_is_not_listed_or_no_login_gets_nothing(self):
         self.helper.down = True

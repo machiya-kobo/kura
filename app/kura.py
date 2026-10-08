@@ -41,7 +41,7 @@ from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.11.3"
+VERSION = "0.12.0"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANGELOG = os.path.join(APP_DIR, "CHANGELOG.md")      # GET /api/changelog; inside app/, so the image's COPY carries it
 PORT = int(os.environ.get("KURA_PORT", "8080"))
@@ -100,29 +100,14 @@ PUBLIC_URL = public_url(os.environ.get("KURA_PUBLIC_URL"))
 
 def trusted_proxies(value):
     """KURA_TRUSTED_PROXIES: the peer addresses (CIDRs or single addresses, comma-separated) whose identity headers
-    count. () when unset; anything that isn't an address or network refuses to start."""
-    out = []
-    for part in (value or "").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            out.append(ipaddress.ip_network(part, strict=False))
-        except ValueError:
-            raise SystemExit("kura: KURA_TRUSTED_PROXIES: %r is not an address or network (like 10.210.4.2/32)" % part)
-    return tuple(out)
-
-
-def peer_trusted(address, proxies):
-    """Whether a peer (the connection's address) is one of the trusted proxies; True when none are set."""
-    if not proxies:
-        return True
+    count (vaultkit.identity.trusted_proxies). () when unset; anything that isn't an address or network refuses to start."""
     try:
-        ip = ipaddress.ip_address((address or "").split("%")[0])
-    except ValueError:
-        return False
-    ip = getattr(ip, "ipv4_mapped", None) or ip
-    return any(ip.version == net.version and ip in net for net in proxies)
+        return identity.trusted_proxies(value, "KURA_TRUSTED_PROXIES")
+    except identity.IdentityError as err:
+        raise SystemExit("kura: %s" % err)
+
+
+peer_trusted = identity.peer_trusted      # whether a peer's address is one of the trusted proxies; True when none are set
 
 
 def need_trusted_proxies(what, bind, proxies):
@@ -473,7 +458,8 @@ class Handler(BaseHTTPRequestHandler):
     def hister(self):
         """The Hister sign-in's answer for this request (histerauth.Result), worked out once."""
         if getattr(self, "_hres", None) is None:
-            self._hres = HISTER.resolve(self.headers, is_page=self.hister_page(), path=self.path)
+            self._hres = HISTER.resolve(self.headers, is_page=self.hister_page(), path=self.path,
+                                        client=self.client_address[0] if self.client_address else "")
         return self._hres
 
     def hister_page(self):

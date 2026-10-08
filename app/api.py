@@ -23,23 +23,23 @@ import search
 import shell
 
 RENDER_CACHE_BYTES = 24 * 1024 * 1024       # rendered notes kept in memory (the biggest cost of a page is Markdown to HTML)
-_rendered = OrderedDict()                   # {(vault, rel, mode, clean, base): (the Note rendered, html)}, least recently used first
+_rendered = OrderedDict()                   # {(vault, rel, mode, clean, base, remote_images): (the Note rendered, html)}, least recently used first
 _rendered_size = 0
 _rendered_lock = threading.Lock()
 
 
-def render(g, n, mode="kura", base="", clean=False):
-    """A note's HTML, as g.render(n, "", False, mode=mode, prefix=g.prefix) (`clean`: then through sanitize(…, base)),
+def render(g, n, mode="kura", base="", clean=False, remote_images="load"):
+    """A note's HTML, as g.render(n, "", False, mode=mode, prefix=g.prefix, remote_images=…) (`clean`: then through sanitize(…, base)),
     kept while the note is the one the index holds: a sync that changes the vault makes new Note objects, so a changed note,
     a new image or a renamed link target can't be served from here. Bounded by RENDER_CACHE_BYTES."""
     global _rendered_size
-    key = (id(g), n.rel, mode, clean, base if clean else "")
+    key = (id(g), n.rel, mode, clean, base if clean else "", remote_images)
     with _rendered_lock:
         hit = _rendered.get(key)
         if hit is not None and hit[0] is n:
             _rendered.move_to_end(key)
             return hit[1]
-    out = g.render(n, "", False, mode=mode, prefix=g.prefix)
+    out = g.render(n, "", False, mode=mode, prefix=g.prefix, remote_images=remote_images)
     if clean:
         out = sanitize(out, base)
     size = len(out) * 2
