@@ -576,6 +576,19 @@ class AuthTest(unittest.TestCase):
         self.assertIn("KURA_AUTH must be tailscale or open", r.stderr)
 
 
+class ImageTest(unittest.TestCase):
+    def test_the_image_does_not_run_as_root(self):
+        """Outside the reference compose (which sets user:) the container must still be uid 1000, and /data, the one place
+        Kura writes, must belong to it so a new volume takes that owner."""
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "Dockerfile")) as f:
+            lines = [x.strip() for x in f if not x.lstrip().startswith("#")]
+        text = "\n".join(lines)
+        self.assertIn("USER 1000:1000", lines)
+        self.assertIn("chown 1000:1000 /data", text)
+        self.assertLess(text.index("chown 1000:1000 /data"), text.index("USER 1000:1000"))
+        self.assertLess(text.index("python3 -m vaultkit.verify"), text.index("USER 1000:1000"))   # build steps stay root
+
+
 class ContrastTest(unittest.TestCase):
     """Rule 4 of Machiya's style guide: every text 4.5:1 in all ten themes, dark and light, on what it is drawn on. These are
     Kura's own pairings of the shared pills and chips: the outlined pill and link chip in their colour on the page, the
