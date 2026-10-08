@@ -15,3 +15,5 @@ __pycache__/
 /vault/
 # Machiya's identity file (logins, token hashes, the session key): never in the repository
 identity.toml
+# a maintainer's private notes for their own coding agent: never in the repository
+CLAUDE.local.md
