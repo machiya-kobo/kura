@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.11.2
+
+- Takes vaultkit 0.27.4: an unselected pill (the search scope, a tag's nested tags) fills with a quarter of its colour under the pointer, and its text and outline take a hover shade that stays at 4.5:1 on that fill in every theme.
+
 ## 0.11.1
 
 - Takes vaultkit 0.27.3: an unselected pill (the search scope, a tag's nested tags) lifts onto a raised shade with a small shadow under the pointer, in a colour that stays readable; the folder tree and the dense note lists are `.rows`, which fill lightly with Kura's orange under the pointer (never on the open folder or the note in the preview); the sidebar's "Folders" heading is teal, as in every Machiya app.
