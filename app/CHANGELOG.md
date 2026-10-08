@@ -4,6 +4,12 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.10.2
+
+- The container no longer runs as root: the image sets `USER 1000:1000` and owns `/data`, so outside the reference compose it is the same uid the install page already asked for. A new volume takes `/data`'s owner from the image; a volume Kura wrote as root earlier needs `chown -R 1000:1000` once.
+- Takes vaultkit 0.26.3: hovering a pill or a link chip thickens its outline instead of filling it, which keeps every text at 4.5:1.
+- `tests/test_private_names.py` (from Machiya): fails if a name from the maintainers' private list appears in a tracked file; it skips without the list.
+
 ## 0.10.1
 
 - Shiori's look, as the Machiya style guide draws it (vaultkit 0.26.2): the vault switch and the search scope ("Personal" · "All Vaults") are filter pills, the current one filled; a tag page's nested tags are pills too, "All" first (a long list stays an index of tags in a fold). "View in Niwa", "View Card in Konbini", "Save Links in Shiori" and "Edit in Obsidian" are outlined link chips in their room's colour; state chips (vault, Published) are outlined, with no fill.
