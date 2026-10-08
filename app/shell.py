@@ -8,6 +8,7 @@ settings (kura.py sets NIWA_URL / KONBINI_URL from KURA_NIWA_URL / KURA_KONBINI_
 """
 import hashlib
 import os
+import re
 import threading
 
 from vaultkit import histerauth
@@ -207,6 +208,8 @@ def page(ctx, site, what, body, current="", head=""):
     vault = site.title if site and not site.default else ""
     title = house.title(ROOM, " · ".join(x for x in (what, vault) if x))
     meta = histerauth.signin_meta("/signout") if SIGNIN else ""
+    if getattr(ctx, "banner", False):               # sign-in is down and the Tailscale fallback let this request in
+        body = re.sub(r"(<main[^>]*>)", lambda m: m.group(1) + histerauth.banner_html(), body, count=1)
     return house.page(ctx, ROOM, title, body + footer(site), tabs(site), current, links=rooms(), head=head + meta + feed_link(site),
                       prefs_url=getattr(view, "prefs_url", ""), who=getattr(view, "who", ""),
                       stylesheets=[static_url("kura.css")], scripts=[static_url("kura.js")], icons=ICON)

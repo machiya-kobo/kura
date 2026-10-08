@@ -107,16 +107,17 @@ except identity.IdentityError as err:
 
 
 def hister_auth(env, bind, secure):
-    """KURA_AUTH=hister: the sign-in helper's check (vaultkit.histerauth), else None. Kura has NO Tailscale fallback and
-    no grace period: with the helper or Hister unavailable every page and call is a 503. KURA_AUTH_FALLBACK defaults
-    to (and may only be) "none"; KURA_PUBLIC_URL, KURA_AUTH_URL, KURA_AUTH_SIGNIN_URL and KURA_HISTER_USERS are
-    required (histerauth.load_for refuses to start without them)."""
+    """KURA_AUTH=hister: the sign-in helper's check (vaultkit.histerauth), else None. KURA_AUTH_FALLBACK is "none" (the
+    default: with the helper or Hister unavailable every page and call is a 503, no grace period) or "tailscale" (then
+    a Tailscale-User-Login listed in KURA_USERS is admitted as the owner, with a banner, and only while nobody
+    answers: a signed-out visitor still goes to the sign-in). KURA_PUBLIC_URL, KURA_AUTH_URL, KURA_AUTH_SIGNIN_URL
+    and KURA_HISTER_USERS are required (histerauth.load_for refuses to start without them)."""
     if AUTH != "hister":
         return None
     env = dict(env)
-    if (env.get("KURA_AUTH_FALLBACK") or "none").strip().lower() != "none":
-        raise SystemExit("kura: KURA_AUTH_FALLBACK must be none: Kura has no Tailscale fallback in hister mode")
-    env["KURA_AUTH_FALLBACK"] = "none"
+    env["KURA_AUTH_FALLBACK"] = (env.get("KURA_AUTH_FALLBACK") or "none").strip().lower()
+    if env["KURA_AUTH_FALLBACK"] not in ("none", "tailscale"):
+        raise SystemExit("kura: KURA_AUTH_FALLBACK must be none or tailscale, not %r" % env["KURA_AUTH_FALLBACK"])
     try:
         return histerauth.load_for("kura", env, bind=bind, secure=secure)
     except identity.IdentityError as err:
@@ -584,7 +585,9 @@ class Handler(BaseHTTPRequestHandler):
         """theme, text size, previewPane (machiya.js writes them as cookies). A browser with none yet is drawn in the
         signed-in account's settings (histerauth's check carries them)."""
         res = getattr(self, "_hres", None) if HISTER is not None else None
-        return shell.prefs(self.headers.get("Cookie"), account=res.prefs if res else None)
+        ctx = shell.prefs(self.headers.get("Cookie"), account=res.prefs if res else None)
+        ctx.banner = bool(res and res.banner)           # the Tailscale fallback let this request in: say so
+        return ctx
 
     def send(self, status, body, ctype="text/html", headers=()):
         data = body.encode("utf-8") if isinstance(body, str) else body
@@ -984,7 +987,9 @@ def main():
         VERSION, vaultkit_version(), repo,
         ", ".join("%s%s" % (x.name, " (default)" if x.default else "") for x in state.sites), POLL,
         "from %s" % IDENTITY.path if IDENTITY is not None else
-        "Hister sign-in (%s)" % ", ".join(sorted(HISTER.users)) if HISTER is not None else
+        ("Hister sign-in (%s), fallback %s%s" % (", ".join(sorted(HISTER.users)), HISTER.fallback,
+                                                 " (%s)" % ",".join(sorted(HISTER.fallback_users))
+                                                 if HISTER.fallback == "tailscale" else "")) if HISTER is not None else
         "anyone (KURA_AUTH=open)" if AUTH == "open" else ",".join(sorted(USERS)) or "NOBODY (set KURA_USERS)",
         ("to %s%s" % (HISTER_URL, " with a token" if HISTER_TOKEN_FILE else "")) if state.push else ("off (needs KURA_PUBLIC_URL)" if HISTER_URL else "off"),
         (", settings from %s" % ENV_FILE) if ENV_FILE else ""), flush=True)

@@ -38,8 +38,10 @@ identity file.
   every app, and signing out anywhere ends it.
 - Signed out, a page goes to the helper's sign-in and an API call gets `401 {"error": "sign in", "signin": …}`.
 - A Hister account that isn't in `KURA_HISTER_USERS` gets 403.
-- With the helper or Hister unreachable, every page and call is a 503. There is **no Tailscale fallback** and no grace
-  period.
+- With the helper or Hister unreachable, every page and call is a 503 (`KURA_AUTH_FALLBACK=none`, the default). With
+  `KURA_AUTH_FALLBACK=tailscale`, a Tailscale login listed in `KURA_USERS` gets in instead, with a banner saying sign-in is
+  unavailable. That works only while nobody answers: a signed-out visitor still goes to the sign-in, and a login that
+  isn't listed gets 403.
 - Each app keeps a host-only cookie of its own, from a one-time code the helper hands over. (The shared cookie is on
   its way out.)
 - A caller that isn't a browser sends a room token (`Authorization: Bearer mht_…`, minted on the helper, good only for

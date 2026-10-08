@@ -1449,13 +1449,77 @@ class HisterModeTest(unittest.TestCase):
         self.assertEqual(auth.audiences, ["https://kura.test", "https://shiori-hosted.test"])   # the hosted pages' room sessions
         with self.assertRaises(SystemExit):
             kura.hister_auth(dict(env, KURA_AUTH_ACCEPT_ORIGINS="https://x.test/path"), "0.0.0.0", True)
-        for bad in ({"KURA_AUTH_FALLBACK": "tailscale"}, {"KURA_PUBLIC_URL": ""}, {"KURA_HISTER_USERS": ""},
+        auth = kura.hister_auth(dict(env, KURA_AUTH_FALLBACK=" Tailscale ", KURA_USERS="owner@test"), "127.0.0.1", True)
+        self.assertEqual((auth.fallback, sorted(auth.fallback_users)), ("tailscale", ["owner@test"]))   # now allowed
+        with self.assertRaises(SystemExit):                                                   # a non-loopback bind needs the proxy flag
+            kura.hister_auth(dict(env, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test"), "0.0.0.0", True)
+        auth = kura.hister_auth(dict(env, KURA_AUTH_FALLBACK="tailscale", KURA_USERS="owner@test",
+                                     KURA_BIND_BEHIND_PROXY="1"), "0.0.0.0", True)
+        self.assertEqual(auth.fallback, "tailscale")
+        for bad in ({"KURA_AUTH_FALLBACK": "grace"}, {"KURA_USERS": "*", "KURA_AUTH_FALLBACK": "tailscale"},
+                    {"KURA_PUBLIC_URL": ""}, {"KURA_HISTER_USERS": ""},
                     {"KURA_HISTER_USERS": "*"}, {"KURA_AUTH_URL": ""}, {"KURA_AUTH_SIGNIN_URL": ""}):
             with self.assertRaises(SystemExit, msg=bad):
                 kura.hister_auth(dict(env, **bad), "0.0.0.0", True)
         with self.assertRaises(SystemExit):
             kura.auth_mode("hister", "/etc/identity.toml")                                # not combined with the file yet
         self.assertEqual(kura.auth_mode("hister", ""), "hister")
+
+
+class HisterFallbackTest(HisterModeTest):
+    """KURA_AUTH=hister with KURA_AUTH_FALLBACK=tailscale: only when nobody answers (the helper or Hister is down), a
+    Tailscale login listed in KURA_USERS is admitted as the owner, with a banner. A signed-out visitor still goes to the
+    sign-in, and a login that isn't listed never gets in."""
+
+    def setUp(self):
+        super().setUp()
+        kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
+                                            fallback="tailscale", fallback_users=["owner@test"], fetch=self.helper)
+
+    # the `none` room's own checks (a Tailscale login opens nothing, a helper that is down is a 503) don't apply here
+    test_signed_out_a_page_goes_to_the_helper_and_an_api_call_gets_401_json = None
+    test_a_helper_that_is_down_is_a_503_for_everyone_with_no_fallback = None
+    test_start_up_settings = None
+
+    def test_a_helper_that_is_down_lets_the_listed_login_in_with_a_banner(self):
+        self.helper.down = True
+        status, headers, body = self.call("/")
+        self.assertEqual(status, 200)
+        self.assertIn('class="machiya-banner"', body)
+        self.assertIn("Signed in through the tailnet: sign-in is unavailable", body)
+        status, _, body = self.call("/api/search?q=tea")                    # the API answers, with no banner to carry
+        self.assertEqual(status, 200)
+        self.assertIn("results", json.loads(body))
+        status, _, body = self.call("/settings")
+        self.assertEqual(status, 200)
+        self.assertIn('data-prefs-state="unavailable"', body)
+
+    def test_a_login_that_is_not_listed_or_no_login_gets_nothing(self):
+        self.helper.down = True
+        status, _, body = self.call("/", headers={"Tailscale-User-Login": "stranger@test"})
+        self.assertEqual(status, 403)
+        self.assertNotIn("Zebrafish", body)
+        self.assertEqual(self.call("/api/search?q=tea", headers={"Tailscale-User-Login": "stranger@test"})[0], 403)
+        self.assertEqual(self.call("/", tailscale=False)[0], 503)         # nobody answers and nobody identified: refused
+        self.assertEqual(self.call("/api/search?q=tea", tailscale=False)[0], 503)
+
+    def test_a_signed_out_visitor_is_never_let_in_by_the_fallback(self):
+        status, headers, _ = self.call("/n/Notes/Tea%20brewing")           # the helper answers: signed out, not down
+        self.assertEqual(status, 302)
+        self.assertTrue(headers["Location"].startswith(self.SIGNIN))
+        self.assertEqual(self.call("/api/search?q=tea")[0], 401)
+
+    def test_with_the_helper_up_a_signed_in_owner_sees_no_banner(self):
+        status, _, body = self.call("/", headers=self.cookie())
+        self.assertEqual(status, 200)
+        self.assertNotIn("machiya-banner", body)
+
+    def test_the_fallback_is_off_in_the_none_room_and_status_stays_open(self):
+        kura.HISTER = histerauth.HisterAuth("kura", self.SIGNIN, ["owner"], "https://kura.test", "http://helper.test",
+                                            fallback="none", fetch=self.helper)
+        self.helper.down = True
+        self.assertEqual(self.call("/")[0], 503)                           # fallback none: the listed login opens nothing
+        self.assertEqual(self.call("/api/status", tailscale=False)[0], 200)
 
 
 class StatusViewTest(unittest.TestCase):
