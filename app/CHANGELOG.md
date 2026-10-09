@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.12.1
+
+- Every response header, cookies included, is checked before anything is written: a carriage return, line feed or NUL in a name or value gives a plain 500 instead of ending the header and starting another. Nothing sent such a value (every redirect target already goes through `websafe.location`); this is a backstop. The sign-in banner is put after the page's first `<main>` tag without a regular expression, with the same output.
+
 ## 0.12.0
 
 - **Changed:** on a page, an image from another site waits for a click. Opening a note no longer tells that site, so a note that points at a tracking pixel or a remote picture shows its address, its alt text and a "Load image" button instead. Images from the vault load as before, and so do the JSON API's `html` and the Hister push (Shiori renders that HTML without Kura's script). A note's `class` attribute now survives only when every class is one of vaultkit's (task lists, wikilinks, diagrams, code languages); the sample vault renders the same.
