@@ -697,6 +697,77 @@ class SpeedTest(unittest.TestCase):
             api.RENDER_CACHE_BYTES = old
 
 
+class HeaderInjectionTest(unittest.TestCase):
+    """Backstop: every outgoing header name and value, cookies included, goes through websafe.header_value; a CR, LF or NUL gives a
+    plain 500 and writes nothing of the response (KONB-2's class of bug: a header that ends and starts another)."""
+
+    @classmethod
+    def setUpClass(cls):
+        class Probe(kura.Handler):
+            def do_GET(self):
+                path = self.path.split("?")[0]
+                evil = "x\r\nSet-Cookie: pwned=1"
+                if path == "/send":
+                    return self.send(200, "<p>ok</p>", headers=[("X-Probe", evil)])
+                if path == "/json":
+                    return self.send_json(200, {"ok": True}, cache=evil)
+                if path == "/name":
+                    return self.send(200, "ok", "text/plain", headers=[("X-Bad\nName", "v")])
+                if path == "/reply":
+                    return self.reply(200, [("Content-Type", "text/plain"), ("X-Probe", evil)], b"ok")
+                if path == "/cookie":
+                    self._who = type("W", (), {"cookies": [evil]})()
+                    return self.send(200, "ok", "text/plain")
+                if path == "/nul":
+                    return self.send(200, "ok", "text/plain", headers=[("X-Probe", "a\0b")])
+                if path == "/fine":
+                    return self.send(200, "ok", "text/plain", headers=[("X-Probe", "plain value, with: punctuation")])
+                return self.send(404, "no\n", "text/plain")
+
+        cls.server = kura.ThreadingHTTPServer(("127.0.0.1", 0), Probe)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def raw(self, path, method="GET"):
+        import socket
+        host, port = self.server.server_address
+        with socket.create_connection((host, port), timeout=5) as c:
+            c.sendall(("%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" % (method, path)).encode())
+            data = b""
+            while True:
+                chunk = c.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+        head, _, body = data.partition(b"\r\n\r\n")
+        return head.decode("latin-1"), body
+
+    def test_a_control_character_in_a_header_never_reaches_the_wire(self):
+        for path in ("/send", "/json", "/name", "/reply", "/cookie", "/nul"):
+            head, body = self.raw(path)
+            self.assertTrue(head.startswith("HTTP/1.0 500") or head.startswith("HTTP/1.1 500"), (path, head[:40]))
+            self.assertNotIn("pwned", head, path)                                  # no injected Set-Cookie
+            self.assertNotIn("Set-Cookie", head, path)
+            self.assertNotIn("X-Probe", head, path)
+            self.assertEqual(body, b"internal error\n", path)                      # and nothing of the real answer
+            self.assertIn("no-store", head, path)
+
+    def test_a_head_request_gets_the_500_with_no_body(self):
+        head, body = self.raw("/send", "HEAD")
+        self.assertIn(" 500 ", head.split("\r\n")[0])
+        self.assertEqual(body, b"")
+
+    def test_an_ordinary_value_is_sent_as_it_was(self):
+        head, body = self.raw("/fine")
+        self.assertIn(" 200 ", head.split("\r\n")[0])
+        self.assertIn("X-Probe: plain value, with: punctuation", head)
+        self.assertEqual(body, b"ok")
+
+
 class RemoteImagesTest(unittest.TestCase):
     """vaultkit 0.29: on a page an image from another site waits for a click; the JSON API (Shiori renders that HTML without
     machiya.js) and the Hister push keep loading it; a vault's own image is never held back."""
@@ -1794,6 +1865,8 @@ class HisterFallbackTest(HisterModeTest):
         status, headers, body = self.call("/")
         self.assertEqual(status, 200)
         self.assertIn('class="machiya-banner"', body)
+        self.assertEqual(body.count('class="machiya-banner"'), 1)                # once, right after the first <main …> tag
+        self.assertRegex(body, r'<main[^>]*><[^>]*class="machiya-banner"')
         self.assertIn("Signed in through the tailnet: sign-in is unavailable", body)
         status, _, body = self.call("/api/search?q=tea")                    # the API answers, with no banner to carry
         self.assertEqual(status, 200)

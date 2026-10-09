@@ -41,7 +41,7 @@ from vaultkit import identity  # noqa: E402
 from vaultkit import signin  # noqa: E402
 from vaultkit import verify as vk_verify  # noqa: E402
 
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CHANGELOG = os.path.join(APP_DIR, "CHANGELOG.md")      # GET /api/changelog; inside app/, so the image's COPY carries it
 PORT = int(os.environ.get("KURA_PORT", "8080"))
@@ -529,23 +529,35 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         return not (path.startswith(("/api/", "/static/")) or path.endswith((".xml", ".js", ".webmanifest", ".ico")))
 
-    def reply(self, status, headers, body):
-        """A vaultkit.signin answer, (status, [(header, value)], bytes), as it is: its own Set-Cookie headers and no
-        others (a renewed session added to a sign-out would undo it)."""
+    def emit(self, status, headers, body):
+        """Write a response. Every header name and value goes through websafe.header_value first, cookies included: a CR,
+        LF or NUL would end the header and start another (a Set-Cookie of an attacker's choosing), so one that fails is
+        a plain 500 and nothing else is written. Callers build the whole header list before anything goes out."""
+        try:
+            headers = [(websafe.header_value(k), websafe.header_value(v)) for k, v in headers]
+        except ValueError:
+            print("kura: refused to send a response header with a control character (%s)" % getattr(self, "path", "?")[:80],
+                  file=sys.stderr, flush=True)
+            status, body = 500, b"internal error\n"
+            headers = [("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", str(len(body))), NO_STORE]
         self.send_response(status)
         for k, v in headers:
             self.send_header(k, v)
-        if dict(headers).get("Content-Type", "").startswith("text/html"):
-            self.send_header("Content-Security-Policy", shell.house.CSP)    # beside signin's own frame-ancestors 'none'
-        else:
-            have = {k.lower() for k, _ in headers}
-            for k, v in websafe.base_headers():
-                if k.lower() not in have:
-                    self.send_header(k, v)
-        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def reply(self, status, headers, body):
+        """A vaultkit.signin answer, (status, [(header, value)], bytes), as it is: its own Set-Cookie headers and no
+        others (a renewed session added to a sign-out would undo it)."""
+        out = list(headers)
+        if dict(headers).get("Content-Type", "").startswith("text/html"):
+            out.append(("Content-Security-Policy", shell.house.CSP))        # beside signin's own frame-ancestors 'none'
+        else:
+            have = {k.lower() for k, _ in headers}
+            out += [(k, v) for k, v in websafe.base_headers() if k.lower() not in have]
+        out.append(("Content-Length", str(len(body))))
+        self.emit(status, out, body)
 
     def too_large(self):
         self.close_connection = True
@@ -670,35 +682,25 @@ class Handler(BaseHTTPRequestHandler):
         if status == 200 and ctype.split(";")[0] in GZIP_TYPES and (gz is not None or len(data) >= GZIP_MIN) and self.wants_gzip() \
                 and not any(k.lower() in ("content-encoding", "etag") for k, _ in headers):
             data, packed = gz if gz is not None else gzip.compress(data, 5, mtime=0), True
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        out = [("Content-Type", ctype), ("Content-Length", str(len(data)))]
         if packed:
-            self.send_header("Content-Encoding", "gzip")
+            out.append(("Content-Encoding", "gzip"))
         vary = [v for k, v in headers if k.lower() == "vary"]
         if ctype.split(";")[0] in GZIP_TYPES:
             vary.append("Accept-Encoding")
         if vary:
-            self.send_header("Vary", ", ".join(vary))
-        for k, v in headers:
-            if k.lower() != "vary":
-                self.send_header(k, v)
+            out.append(("Vary", ", ".join(vary)))
+        out += [(k, v) for k, v in headers if k.lower() != "vary"]
         if ctype.startswith("text/html"):
-            for k, v in shell.house.security_headers():    # a note's HTML is cleaned; this is the second wall
-                self.send_header(k, v)
+            out += list(shell.house.security_headers())    # a note's HTML is cleaned; this is the second wall
         else:                                               # JSON, text, CSS, images, redirects (vaultkit.websafe)
             have = {k.lower() for k, _ in headers}
-            for k, v in websafe.base_headers():
-                if k.lower() not in have:
-                    self.send_header(k, v)
+            out += [(k, v) for k, v in websafe.base_headers() if k.lower() not in have]
         res = getattr(self, "_hres", None)
         if res is None:
             res = getattr(self, "_who", None)
-        for c in (res.cookies if res is not None else ()):
-            self.send_header("Set-Cookie", c)          # a renewed session, or a bad one cleared
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(data)
+        out += [("Set-Cookie", c) for c in (res.cookies if res is not None else ())]     # a renewed session, or a bad one cleared
+        self.emit(status, out, data)
 
     def send_json(self, status, obj, cache="no-store"):
         """JSON answers are never kept by a browser or a client's URL cache (a private vault's notes, an Archive/ note, a
