@@ -4,6 +4,11 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.13.0
+
+- **Changed:** the header is one row from 1100 px wide: the search pill sits between the tabs and the icons (the vault chip, Rooms, the account and Settings) instead of on a second row, as in Shiori. Narrower windows and phones keep the pill on its own row. The reader's columns now take their height from the header's, so the page no longer scrolls a few pixels at 1100 px and wider, and the folder tree on tablets sticks right under the header.
+- Takes vaultkit 0.30.1 for the header layout.
+
 ## 0.12.2
 
 - Base image re-pinned to the current digest (security fixes in the base layers).
