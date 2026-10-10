@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.12.2
+
+- Base image re-pinned to the current digest (security fixes in the base layers).
+
 ## 0.12.1
 
 - Every response header, cookies included, is checked before anything is written: a carriage return, line feed or NUL in a name or value gives a plain 500 instead of ending the header and starting another. Nothing sent such a value (every redirect target already goes through `websafe.location`); this is a backstop. The sign-in banner is put after the page's first `<main>` tag without a regular expression, with the same output.
