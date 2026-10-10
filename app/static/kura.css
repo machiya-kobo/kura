@@ -111,7 +111,8 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
 @media (min-width: 761px) {
   .kgrid, .kgrid:not(.khome) { grid-template-columns: 220px minmax(0, 1fr); }
   .kgrid:not(.khome) .kside { display: block; }
-  .kside { position: sticky; top: 64px; align-self: start; max-height: calc(100dvh - 80px); overflow-y: auto;
+  .kside { position: sticky; top: calc(var(--hdr-h, 107px) + var(--sp-3)); align-self: start;
+    max-height: calc(100dvh - var(--hdr-h, 107px) - 2 * var(--sp-3)); overflow-y: auto;   /* under the pinned header */
     padding-right: 8px; border-right: 1px solid var(--line); }
   .kside .sidehead { margin-top: 0; }
   .ksubs { display: none; }                          /* the tree already shows them */
@@ -122,7 +123,7 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
   body.room-kura:has(.kgrid) { padding-bottom: 0; }
   body.room-kura:has(.kgrid) .foot { margin-top: 0; padding: 8px 0; }
   .kgrid, .kgrid:not(.khome) { grid-template-columns: 230px minmax(300px, 380px) minmax(0, 1fr);
-    height: calc(100dvh - 61px - 34px - var(--sat)); gap: 0; }
+    height: calc(100dvh - var(--hdr-h, 59px) - var(--sp-3) - 34px - var(--sat)); gap: 0; }   /* header (one row), its margin, the footer */
   .kside, .klist, .kpreview { position: static; max-height: none; height: 100%; overflow-y: auto; overscroll-behavior: contain; }
   .kside { padding: 0 10px 20px 0; }
   .klist { padding: 0 18px 20px; border-right: 1px solid var(--line); }

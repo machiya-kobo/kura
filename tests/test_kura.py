@@ -251,6 +251,22 @@ class NoteApiTest(unittest.TestCase):
         self.assertNotIn(".kfold:hover", css)                                  # one hover for every selectable row
         self.assertNotIn(".kn:hover { background", css)
 
+    def test_the_header_is_one_row_with_the_search_pill_after_the_top_bar(self):
+        # vaultkit 0.30: from 1100px machiya.css puts the pill (the .searchrow, a sibling of .topbar) between the tabs and the
+        # tools, so Kura's own tools (the vault chip) stay inside .topbar, before the Rooms button, and the sticky and
+        # full-height columns take the header's height from --hdr-h, never from a number
+        _, body = get("/")
+        top, rest = body.split('<div class="tools">', 1)
+        tools, after = rest.split("</div>", 1)
+        self.assertEqual(top.count('<header class="top"><div class="topbar">'), 1)
+        self.assertIn('<nav class="nav">', top)
+        self.assertIn('class="vaults"', tools)                                 # the chip is in the tools slot
+        self.assertIn('<div class="searchrow"><form class="search searchbar"', after)
+        css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "static", "kura.css")).read()
+        self.assertIn("var(--hdr-h", css)
+        self.assertNotIn("100dvh - 61px", css)                                 # the old guesses at the header's height
+        self.assertNotIn("top: 64px", css)
+
     def test_recent_tags_folders(self):
         _, d = getj("/api/recent?limit=2")
         self.assertEqual((d["total"], len(d["results"])), (4, 2))
