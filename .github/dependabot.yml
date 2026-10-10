@@ -1,5 +1,6 @@
-# Version updates for what Dependabot can see: the pinned GitHub Actions and the Dockerfile's base-image digest
-# (tools/pin-bases pins it). The pip installs are inline in the Dockerfile, so they are not covered here.
+# Version updates for the pinned GitHub Actions only. The Dockerfile base images aren't covered here: public.ecr.aws
+# answers Dependabot's shared runners with 429, and tools/pin-bases keeps those digests current. The pip installs are
+# inline in the Dockerfile, so they are not visible to Dependabot.
 # Dependabot only opens PRs; merging one means pulling it onto main like any other commit (tests green first).
 version: 2
 updates:
@@ -11,13 +12,4 @@ updates:
       prefix: "kura: "
     groups:
       actions:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /app
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "kura: "
-    groups:
-      base-images:
         patterns: ["*"]
