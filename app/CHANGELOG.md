@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.13.2
+
+- Refreshing a page, plain or hard, now installs a waiting new version, as the "New Version · Reload" button does; before, the toast came back after a refresh. The toast stays for the person who doesn't refresh. Takes vaultkit 0.31.1.
+
 ## 0.13.1
 
 - The header from 1100 px wide now runs: the tabs, the vault chip, the search pill, then Rooms, the account and Settings. The pill's width follows the window alone, so it, Rooms and Settings sit in the same place in every room. Narrower windows and phones are as before. Takes vaultkit 0.31.0.
