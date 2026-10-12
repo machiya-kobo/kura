@@ -15,7 +15,7 @@ Agentically coded with [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 <table>
   <tr>
     <td align="center" width="33%"><a href="docs/screenshots/kura-note-light.png"><img src="docs/screenshots/kura-note-light.png" alt="The note Bamboo frames on its own page, with its backlinks, in the light theme" width="100%"></a><br>Read a note and its backlinks</td>
-    <td align="center" width="33%"><a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first, in the dark theme" width="100%"></a><br>Search every note</td>
+    <td align="center" width="33%"><a href="docs/screenshots/kura-search-dark.png"><img src="docs/screenshots/kura-search-dark.png" alt="Search results for bamboo, title matches first and the top result previewed on the right, in the dark theme" width="100%"></a><br>Search every note</td>
     <td align="center" width="33%"><a href="docs/screenshots/kura-tags-light.png"><img src="docs/screenshots/kura-tags-light.png" alt="Every tag in the sample vault with its note count, grouped by area, topic and type, in the light theme" width="100%"></a><br>Browse every tag</td>
   </tr>
 </table>
