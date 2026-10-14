@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.14.0
+
+- Settings opens as a sheet over the page: ✕ Cancel, the title, ✓ Save. The gear, the Rooms menu's Settings row and the account button all open it; changes show at once and are kept only on Save, and Cancel, Esc or a tap outside puts everything back. A setting only the server draws (Preview Pane, your Obsidian vault name) reloads the page after Save. On a phone the sheet fills the screen and the header and tab bar step aside. /settings opened directly is still the page and saves each change at once. The installed app's header is frosted again, fading out of the status bar's color. Takes vaultkit 0.32.2.
+
 ## 0.13.6
 
 - On a phone only one tab in the bottom bar is lit at a time: while the Rooms sheet is open, Rooms is lit and the page's own tab goes plain, and closing the sheet lights the page's tab again. Takes vaultkit 0.31.5.
