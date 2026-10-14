@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.13.6
+
+- On a phone only one tab in the bottom bar is lit at a time: while the Rooms sheet is open, Rooms is lit and the page's own tab goes plain, and closing the sheet lights the page's tab again. Takes vaultkit 0.31.5.
+
 ## 0.13.5
 
 - The search field in the header is 38 px tall at every width, and from 1100 px its text is 15 px (phones keep 16 px). The header is shorter by the difference (51 px in one row), and the three-column reader still fills the window exactly, with the footer under it. Takes vaultkit 0.31.4.
