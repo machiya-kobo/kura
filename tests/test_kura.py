@@ -1029,10 +1029,11 @@ class VaultsTest(unittest.TestCase):
         self.assertTrue(all(x["icons"] for x in m["shortcuts"]))
         for icon in m["icons"]:
             self.assertEqual(get(icon["src"])[0], 200, icon)
-        self.assertEqual(m["background_color"], "#1a1b26")                  # System on an unknown device: Night
+        self.assertEqual((m["background_color"], m["theme_color"]), ("#1a1b26", "#1a1b26"))   # System on an unknown device:
+        # Night, and the bar is the page's --bg (v0.32.3)
         _, h, body = fetch("/manifest.webmanifest", headers={"Sec-CH-Prefers-Color-Scheme": "light"})
         light = json.loads(body)
-        self.assertEqual((light["background_color"], light["theme_color"]), ("#e1e2e7", "#d0d5e3"))   # a light splash
+        self.assertEqual((light["background_color"], light["theme_color"]), ("#e1e2e7", "#e1e2e7"))   # a light splash
         self.assertEqual(light["user_preferences"]["color_scheme_dark"]["background_color"], "#1a1b26")
         self.assertIn("Sec-CH-Prefers-Color-Scheme", h["Vary"])
         night = json.loads(fetch("/manifest.webmanifest", cookie="theme=night",
