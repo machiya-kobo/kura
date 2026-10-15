@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.14.4
+
+- On an iPhone the installed app's header drops its name row when it has a search box: the box starts below the system's blur, and the vault switch sits beside it. Rooms, the account and Settings are in the tab bar, as before. Takes vaultkit 0.34.0.
+
 ## 0.14.3
 
 - In the installed iOS app the header's contents start 12 px lower under the status bar, not 24 px. Takes vaultkit 0.33.1.
