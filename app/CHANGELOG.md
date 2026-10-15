@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.14.5
+
+- Fix: on an iPhone the installed app's Back button on a note or any other inner page was hidden by the new header; it is back, at the left of the search box. Takes vaultkit 0.34.1.
+
 ## 0.14.4
 
 - On an iPhone the installed app's header drops its name row when it has a search box: the box starts below the system's blur, and the vault switch sits beside it. Rooms, the account and Settings are in the tab bar, as before. Takes vaultkit 0.34.0.
