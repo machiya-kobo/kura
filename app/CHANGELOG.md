@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.15.1
+
+- On a phone the tab bar is frosted like the header, and Kura's icon in it is the same size as the other apps' icons. Takes vaultkit 0.35.2.
+
 ## 0.15.0
 
 - On a phone the tab bar is Kura, Recent, Tags, Vault and Rooms: the first tab is the app itself, and Vault, a sheet listing your vaults with the current one ticked, replaces the vault chip in the header (wide screens keep the chip). The search field is 44 px tall and says which vault it searches: "Search Personal", "Search Work". Takes vaultkit 0.35.1.
