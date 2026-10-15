@@ -48,8 +48,12 @@ def nav(site):
 
 
 def tabs(site):
+    """The phone tab bar: Kura (vaultkit swaps Home's icon and label for the app's own), Recent, Tags and, with more than
+    one vault, Vault: a sheet tab (raw HTML) listing the vaults. Rooms follows. The offline page has no vault (site None)."""
     p = site.prefix if site else ""
-    return [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/t/", "tags", "Tags")]
+    out = [(p + "/", "kura", "Home"), (p + "/recent", "recent", "Recent"), (p + "/t/", "tags", "Tags")]
+    sheet = vault_tab(site) if site else ""
+    return out + [sheet] if sheet else out
 
 
 def static_path(name):
@@ -139,24 +143,40 @@ ICON = {    # Kura's tabs and reader glyphs; Home is the house's kura glyph (a b
     "folder": _SVG % '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
     "open": _SVG % '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     "note": _SVG % '<path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/>',
+    "vault": _SVG % '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5v-1.5M12 17v-1.5M7 20v1.5M17 20v1.5"/>',
 }
+
+
+def vault_rows(site):
+    """The vaults as menu rows, the current one ticked (<b>), each with its note count and whether it stays off devices
+    (private) or is shared."""
+    counts = COUNTS()
+    def what(x):
+        return "%d%s" % (counts.get(x.name, 0), " · private" if x.private else " · shared" if x.shared else "")
+    return "".join(
+        ('<b>%s<small>%s</small></b>' if x is site else '<a href="%s/">%s<small>%s</small></a>')
+        % ((e(x.title), what(x)) if x is site else (e(x.prefix), e(x.title), what(x)))
+        for x in sites())
 
 
 def vault_switch(site):
     """The vault chip and menu (only with more than one vault): the current vault's title, then every vault with
-    its note count. A work vault's chip is yellow, so a work note never looks like a personal one."""
+    its note count. A work vault's chip is yellow, so a work note never looks like a personal one. Phones have the
+    Vault tab instead (kura.css hides the chip up to 760px)."""
     if len(sites()) < 2:
         return ""
-    counts = COUNTS()
-    def what(x):            # the count, and whether the vault stays off devices (private) or is shared
-        return "%d%s" % (counts.get(x.name, 0), " · private" if x.private else " · shared" if x.shared else "")
-    rows = "".join(
-        ('<b>%s<small>%s</small></b>' if x is site else '<a href="%s/">%s<small>%s</small></a>')
-        % ((e(x.title), what(x)) if x is site else (e(x.prefix), e(x.title), what(x)))
-        for x in sites())
     return ('<details class="vaults"><summary class="chip link%s" title="Vaults" aria-label="Vaults: %s">%s</summary>'
             '<nav class="menu" aria-label="Vaults">%s</nav></details>'
-            % (" private" if site.private else "", e(site.title), e(site.title), rows))
+            % (" private" if site.private else "", e(site.title), e(site.title), vault_rows(site)))
+
+
+def vault_tab(site):
+    """The phone tab bar's Vault tab: a sheet (vaultkit's .tabsheet, opened above the bar, lit while open) listing the
+    vaults like the Rooms menu does. Only with more than one vault."""
+    if len(sites()) < 2:
+        return ""
+    return ('<details class="tabsheet" data-menu><summary title="Vault" aria-label="Vault: %s">%s<span>Vault</span></summary>'
+            '<nav class="menu" aria-label="Vaults">%s</nav></details>' % (e(site.title), ICON["vault"], vault_rows(site)))
 
 
 def search_bar(site, q="", everywhere=False, focus=False):
@@ -164,7 +184,7 @@ def search_bar(site, q="", everywhere=False, focus=False):
     vault's /search and swapping <main>). `everywhere`: the owner's "All Vaults" search keeps `vaults=all` in both the
     form and the live fetch. `focus`: the empty search page puts the cursor in it."""
     p = site.prefix if site else ""
-    what = "Search Notes" if not site or site.default else "Search " + site.title
+    what = "Search " + site.title if site else "Search Notes"      # the vault's own name, at every width (owner 2026-10-14)
     bar = house.search_bar(q, p + "/search" + ("?vaults=all" if everywhere else ""), what, "Search every note")
     if everywhere:
         bar = bar.replace("</form>", '<input type="hidden" name="vaults" value="all"></form>', 1)

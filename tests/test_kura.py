@@ -329,7 +329,7 @@ class ShellTest(unittest.TestCase):
     def test_room_page(self):
         _, body = get("/")
         for want in ('href="/static/machiya.css?v=', 'href="/static/kura.css?v=', 'class="theme-system room-kura"',
-                     '<form class="search searchbar"', 'placeholder="Search Notes"', 'class="foot"', "synced ", 'href="/settings"'):
+                     '<form class="search searchbar"', 'placeholder="Search Personal"', 'class="foot"', "synced ", 'href="/settings"'):
             self.assertIn(want, body)
         for name in ("machiya.css", "machiya.js", "machiya-sw.js"):
             self.assertEqual(get("/static/" + name)[0], 200, name)
@@ -357,9 +357,9 @@ class ShellTest(unittest.TestCase):
     def test_search_pill_on_every_page_and_no_search_tab_or_link(self):
         # The search field is the pill under the pinned header (machiya.js shows results as you type): on every page of
         # every vault, aimed at that vault's /search; the nav and the tab bar have no Search entry any more
-        for path, prefix, what in (("/", "", "Search Notes"), ("/recent", "", "Search Notes"), ("/t/", "", "Search Notes"),
-                                   ("/n/Notes/Tea%20brewing", "", "Search Notes"), ("/nope", "", "Search Notes"),
-                                   ("/settings", "", "Search Notes"), ("/search?q=tea", "", "Search Notes"),
+        for path, prefix, what in (("/", "", "Search Personal"), ("/recent", "", "Search Personal"), ("/t/", "", "Search Personal"),
+                                   ("/n/Notes/Tea%20brewing", "", "Search Personal"), ("/nope", "", "Search Personal"),
+                                   ("/settings", "", "Search Personal"), ("/search?q=tea", "", "Search Personal"),
                                    ("/v/work/", "/v/work", "Search Work Notes"),
                                    ("/v/work/search?q=plan", "/v/work", "Search Work Notes")):
             _, body = get(path)
@@ -371,6 +371,26 @@ class ShellTest(unittest.TestCase):
             tabs = re.search(r'<nav class="tabbar".*?</nav>', body, re.S).group(0)
             self.assertNotIn('/search"', tabs, path)
             self.assertEqual(body.count("<form"), 1, path)
+
+    def test_phone_tabs_are_kura_recent_tags_vault_rooms(self):
+        """v0.35: the first tab is the app itself (its icon and name), then Recent, Tags, the Vault sheet (with more than one
+        vault) and Rooms. The sheet lists the vaults like Rooms does, the current one ticked. kura.css hides the header's
+        vault chip on phones; wide screens, which have no tab bar, keep it."""
+        for path, current, other in (("/", "Personal", '<a href="/v/work/">Work Notes<small>2 · private</small></a>'),
+                                     ("/v/work/", "Work Notes", '<a href="/">Personal<small>4</small></a>')):
+            _, body = get(path)
+            bar = re.search(r'<nav class="tabbar".*?</nav></details></nav>', body, re.S).group(0)
+            labels = re.findall(r'<span>([^<]+)</span>(?=</a>|</summary>)', bar)
+            self.assertTrue(bar.startswith('<nav class="tabbar" aria-label="Sections"><a href="%s"' % ("/" if path == "/" else "/v/work/")), path)
+            self.assertEqual(labels, ["Kura", "Recent", "Tags", "Vault", "Rooms"], path)
+            sheet = re.search(r'<details class="tabsheet" data-menu>.*?</details>', bar, re.S).group(0)
+            self.assertIn('<summary title="Vault" aria-label="Vault: %s">' % current, sheet, path)
+            self.assertRegex(sheet, r'<b>%s<small>\d+' % re.escape(current), path)
+            self.assertIn(other, sheet, path)
+            self.assertIn('<details class="vaults">', body, path)                 # the chip is still there for wide screens
+        css = get("/static/kura.css")[1]
+        self.assertRegex(css, r"@media \(max-width: 760px\) \{ header\.top \.vaults \{ display: none; \} \}")
+        self.assertNotIn("tabsheet", fetch("/offline")[2])                       # precached: no vault in it
 
     def test_the_search_page_has_no_field_in_main(self):
         for path in ("/search", "/search?q=tea", "/search?q=nothing-matches-this", "/search?q=tea&vaults=all", "/v/work/search?q=plan"):
@@ -2756,6 +2776,7 @@ class IdentityTest(unittest.TestCase):
         st, _, body = self.agent("/api/notes?urls=https://kura.test/v/work/n/Runbooks/Zebrafish%20deploy")
         self.assertEqual(json.loads(body)["notes"], [])                                    # only echoed in missing
         self.assertNotIn('class="vaults"', self.agent("/")[2])                             # one vault: no switch
+        self.assertNotIn('class="tabsheet"', self.agent("/")[2])                        # nor a Vault tab
 
     def test_a_person_granted_one_private_vault(self):
         partner = dict(Tailscale_User_Login="partner@test")

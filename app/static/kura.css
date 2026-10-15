@@ -48,6 +48,8 @@ ul.garden-list .summary { margin: 3px 0 0; color: var(--muted); font-size: var(-
 .vaults .menu a:hover { background: var(--hl); text-decoration: none; }
 .vaults .menu b { background: var(--hl); }
 .vaults .menu small { color: var(--menu-muted, var(--muted)); font-weight: 400; margin-left: auto; }   /* a raised panel, like Rooms */
+/* phones have the tab bar's Vault tab (shell.vault_tab), so the chip is for the wide screens, which have no tab bar */
+@media (max-width: 760px) { header.top .vaults { display: none; } }
 .kmeta .chip { margin-right: 4px; }
 .klist .pills { margin: 0 0 var(--sp-3); }
 
@@ -111,8 +113,8 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
 @media (min-width: 761px) {
   .kgrid, .kgrid:not(.khome) { grid-template-columns: 220px minmax(0, 1fr); }
   .kgrid:not(.khome) .kside { display: block; }
-  .kside { position: sticky; top: calc(var(--hdr-h, 99px) + var(--sp-3)); align-self: start;
-    max-height: calc(100dvh - var(--hdr-h, 99px) - 2 * var(--sp-3)); overflow-y: auto;   /* under the pinned header */
+  .kside { position: sticky; top: calc(var(--hdr-h, 105px) + var(--sp-3)); align-self: start;
+    max-height: calc(100dvh - var(--hdr-h, 105px) - 2 * var(--sp-3)); overflow-y: auto;   /* under the pinned header */
     padding-right: 8px; border-right: 1px solid var(--line); }
   .kside .sidehead { margin-top: 0; }
   .ksubs { display: none; }                          /* the tree already shows them */
@@ -123,7 +125,7 @@ ul.kns li + li .kn { border-top: 1px solid var(--line); border-radius: 0; }
   body.room-kura:has(.kgrid) { padding-bottom: 0; }
   body.room-kura:has(.kgrid) .foot { margin-top: 0; padding: 8px 0; }
   .kgrid, .kgrid:not(.khome) { grid-template-columns: 230px minmax(300px, 380px) minmax(0, 1fr);
-    height: calc(100dvh - var(--hdr-h, 51px) - var(--sp-3) - 35px - var(--sat)); gap: 0; }   /* header (one row), its margin, the footer (34.4px; 35 so it never overshoots) */
+    height: calc(100dvh - var(--hdr-h, 57px) - var(--sp-3) - 35px - var(--sat)); gap: 0; }   /* header (one row), its margin, the footer (34.4px; 35 so it never overshoots) */
   .kside, .klist, .kpreview { position: static; max-height: none; height: 100%; overflow-y: auto; overscroll-behavior: contain; }
   .kside { padding: 0 10px 20px 0; }
   .klist { padding: 0 18px 20px; border-right: 1px solid var(--line); }
