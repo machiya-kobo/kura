@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.14.2
+
+- The installed app on iOS is see-through under the status bar again (black-translucent; the Day theme keeps the default style). The app's header is plain frost up to the top edge, with no fade, and its contents start 24 px lower on iOS so the system's edge blur misses the names. Takes vaultkit 0.33.0.
+
 ## 0.14.1
 
 - In the installed app the header's top fades out of the page's own background color, so there is no darker band or hard edge under the status bar. The browser's bar color (the manifest's and the page's theme color) is the page background too. Takes vaultkit 0.32.3.

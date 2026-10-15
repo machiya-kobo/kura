@@ -1046,6 +1046,13 @@ class VaultsTest(unittest.TestCase):
         self.assertIn('class="theme-day palette-nord room-kura"', body)
         self.assertIn('<option value="nord" selected>Nord</option>', fetch("/settings", cookie="palette=nord")[2])
 
+    def test_status_bar_style(self):
+        """v0.33: an installed iOS app is see-through under the status bar (black-translucent), `default` for Day."""
+        self.assertIn('<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
+                      fetch("/", cookie="theme=night")[2])
+        self.assertIn('<meta name="apple-mobile-web-app-status-bar-style" content="default">',
+                      fetch("/", cookie="theme=day")[2])
+
     def test_push_refuses_a_work_vault(self):
         import push
         p = push.Push("http://127.0.0.1:9", os.path.join(TMP, "push-private.sqlite3"), "personal", "https://kura.test")
