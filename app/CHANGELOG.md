@@ -4,6 +4,10 @@ Kura follows [Semantic Versioning](https://semver.org). Before 1.0, a new featur
 changed API field bumps the minor number; a fix or a wording change bumps the patch. `/api/status` and Settings → About
 show the running version.
 
+## 0.15.2
+
+- On a phone in the Day theme, Kura's icon in the tab bar keeps its rounded corners instead of showing as a square tile. Takes vaultkit 0.35.3.
+
 ## 0.15.1
 
 - On a phone the tab bar is frosted like the header, and Kura's icon in it is the same size as the other apps' icons. Takes vaultkit 0.35.2.
