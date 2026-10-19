@@ -1,8 +1,8 @@
 # Kura
 
-[Machiya](https://github.com/machiya-kobo/machiya) is a set of small self-hosted apps for finding what you've read: your pages ([Hister](https://github.com/asciimoo/hister)), the web ([SearXNG](https://github.com/searxng/searxng)), your notes ([Obsidian](https://obsidian.md)) and your code ([Forgejo](https://forgejo.org) or [GitHub](https://github.com)).
+Kura (蔵, storehouse) reads every note in your [Obsidian](https://obsidian.md) vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
 
-Kura (蔵, storehouse) is Machiya's notes app. Read every note in your Obsidian vault, with working links and full-text search. It's also a JSON API for your scripts and agents.
+Kura is one of [Machiya](https://github.com/machiya-kobo/machiya)'s small self-hosted apps, which share one vault of notes: [Konbini](https://github.com/machiya-kobo/konbini) for your projects, [Niwa](https://github.com/machiya-kobo/niwa) for your digital garden and [Shiori](https://github.com/machiya-kobo/shiori) to search everything you've read.
 
 Agentically coded with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 

@@ -232,14 +232,14 @@ its compose files and `.env.example`. What changes for Kura:
   checkout at `/vault` (`KURA_REPO_DIR=/vault`, no `KURA_REPO_URL`). `VAULT_SUBDIR` (`KURA_REPO_SUBDIR`) names the notes
   folder.
 - **The other apps:** `MACHIYA_ROOMS` (the Rooms switcher in the header), `KURA_NIWA_URL` and `KURA_KONBINI_URL`
-  ("View in Niwa" and "View Card in Konbini"), and `KURA_HISTER_URL` (push every note into Hister; once Hister has
+  ("View in [Niwa](https://github.com/machiya-kobo/niwa)" and "View Card in [Konbini](https://github.com/machiya-kobo/konbini)"), and `KURA_HISTER_URL` (push every note into Hister; once Hister has
   sign-in on, also `KURA_HISTER_TOKEN_FILE`, the owner's Hister token, which the reference compose doesn't pass yet).
 - **Who may read it:** the stack's compose sets `KURA_AUTH=open`, safe only because every published port binds
   `127.0.0.1`. [Who can use it](access.md) says how to let others in.
 - **One look across apps:** with the apps on hostnames of one domain, `MACHIYA_COOKIE_DOMAIN` shares the theme and
   text size between them.
 - **Links:** `KURA_PUBLIC_URL` (the base of every note's URL), `MACHIYA_SOURCE_URL` (a source-code link in the footer)
-  and `KURA_SHIORI_LINKS=1` ("Save Links in Shiori").
+  and `KURA_SHIORI_LINKS=1` ("Save Links in [Shiori](https://github.com/machiya-kobo/shiori)").
 
 ## Testing these steps
 

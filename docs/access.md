@@ -24,7 +24,7 @@ Turn on Machiya's identity file:
 cd app && python3 -m vaultkit.identity setup
 ```
 
-From the Quickstart's venv, that's `cd app && ../.venv/bin/python -m vaultkit.identity setup` (vaultkit lives in
+From the Quickstart's venv, that's `cd app && ../.venv/bin/python -m vaultkit.identity setup` ([vaultkit](https://github.com/machiya-kobo/machiya/blob/main/docs/vaultkit.md) lives in
 `app/`). It prints the settings for each app. It's off unless you set it; see
 [Machiya's identity guide](https://github.com/machiya-kobo/machiya/blob/main/docs/identity.md).
 
@@ -36,7 +36,7 @@ Kura's identity settings: `MACHIYA_IDENTITY_FILE`, `KURA_SIGNIN`, `KURA_AUTH_HEA
 `KURA_AUTH=hister` makes a Hister account the sign-in. It's off unless you set it, and it doesn't combine with the
 identity file.
 
-- Kura asks Machiya's sign-in helper (hister-login) whether you're signed in to Hister. One sign-in covers Hister and
+- Kura asks Machiya's sign-in helper ([hister-login](https://github.com/machiya-kobo/machiya/blob/main/docs/services/hister-login.md)) whether you're signed in to Hister. One sign-in covers Hister and
   every app, and signing out anywhere ends it.
 - Signed out, a page goes to the helper's sign-in and an API call gets `401 {"error": "sign in", "signin": …}`.
 - A Hister account that isn't in `KURA_HISTER_USERS` gets 403.

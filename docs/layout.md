@@ -8,13 +8,13 @@
   sent in `KURA_DB`.
 - That and your preferences (theme and text size, in `prefs.sqlite3` next to it) are its only state. Lose `/data` and
   Kura clones again, re-sends every note once and forgets the preferences.
-- Niwa, Konbini and Hister are optional. Kura never writes to the vault.
+- [Niwa](https://github.com/machiya-kobo/niwa), [Konbini](https://github.com/machiya-kobo/konbini) and Hister are optional. Kura never writes to the vault.
 
 ## The code
 
 - `app/kura.py`: the server: settings, the sync loop, routes, the owner gate and the API
 - `app/pages.py`: the reader pages; every page takes the vault (`g`, a `sites.Site`) and builds its links with `g.prefix`
-- `app/sites.py`: the vaults: `KURA_VAULTS` parsing, `Site` (a vaultkit `Vault` with a name, title, prefix, and whether it's shared or private) and the shared checkouts
+- `app/sites.py`: the vaults: `KURA_VAULTS` parsing, `Site` (a [vaultkit](https://github.com/machiya-kobo/machiya/blob/main/docs/vaultkit.md) `Vault` with a name, title, prefix, and whether it's shared or private) and the shared checkouts
 - `app/search.py`: the FTS5 index (one table, a `vault` column) and the query syntax
 - `app/api.py`: JSON shapes, card links, the HTML sanitizer for `/api/note`, and RSS
 - `app/push.py`: the vault push into Hister
